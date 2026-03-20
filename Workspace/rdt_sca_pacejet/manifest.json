@@ -1,73 +1,87 @@
 {
-  "fantasyName": "RDT | SCA Pacejet Extension",
-  "name": "rdt_sca_pacejet",
-  "version": "1.0.0",
-  "vendor": "RDT",
-  "type": "extension",
-  "target": "SCS,SCA",
-  "description": "My cool extension does magic!",
-  "assets": {
-    "img": {
-      "files": []
+    "name": "rdt_sca_pacejet",
+    "fantasyName": "RDT | SCA Pacejet Extension",
+    "vendor": "RDT",
+    "version": "1.0.0",
+    "type": "extension",
+    "target": "SCS,SCA",
+    "target_version": {
+        "SCS": ">=25.1.0",
+        "SCA": ">=25.1.0"
     },
-    "fonts": {
-      "files": []
+    "description": "Pacejet checkout integration with backend cart application",
+    "skins": [],
+    "assets": {
+        "services": {
+            "files": [
+                "services/PJModule.Service.ss"
+            ]
+        }
     },
-    "services": {
-      "files": [
-        "services/PJModule.Service.ss"
-      ]
-    }
-  },
-  "suitescript2": {
-    "files": [
-      "Modules/PJModule/SuiteScript2/PJModule.Service.ss"
-    ]
-  },
-  "target_version": {
-    "SCS": ">=25.1.0",
-    "SCA": ">=25.1.0"
-  },
-  "javascript": {
-    "entry_points": {
-      "checkout": "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.js"
-    },
-    "application": {
-      "checkout": {
+    "configuration": {
         "files": [
-          "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.js",
-          "Modules/PJModule/JavaScript/PJModule.View.js"
+            "Modules/PJModule/Configuration/PJModule.json"
         ]
-      }
-    }
-  },
-  "ssp-libraries": {
-    "entry_point": "Modules/PJModule/SuiteScript/RDT.rdt_sca_pacejet.PJModule.js",
-    "files": [
-      "Modules/PJModule/SuiteScript/RDT.rdt_sca_pacejet.PJModule.js",
-      "Modules/PJModule/SuiteScript/PJModule.ServiceController.js"
-    ]
-  },
-  "templates": {
-    "application": {
-      "checkout": {
-        "files": [
-          "Modules/PJModule/Templates/rdt_rdt_sca_pacejet_pjmodule.tpl"
-        ]
-      }
-    }
-  },
-  "sass": {
-    "entry_points": {
-      "checkout": "Modules/PJModule/Sass/_rdt_sca_pacejet-pjmodule.scss"
     },
-    "files": [
-      "Modules/PJModule/Sass/_rdt_sca_pacejet-pjmodule.scss"
-    ]
-  },
-  "configuration": {
-    "files": [
-      "Modules/PJModule/Configuration/PJModule.json"
-    ]
-  }
+    "sass": {
+        "entry_points": {
+            "checkout": "Modules/PJModule/Sass/_rdt_sca_pacejet-pjmodule.scss"
+        },
+        "files": [
+            "Modules/PJModule/Sass/_rdt_sca_pacejet-pjmodule.scss"
+        ]
+    },
+    "templates": {
+        "application": {
+            "checkout": {
+                "files": [
+                    "Modules/PJModule/Templates/rdt_rdt_sca_pacejet_pjmodule.tpl"
+                ]
+            }
+        }
+    },
+    "javascript": {
+        "entry_points": {
+            "checkout": "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.js"
+        },
+        "application": {
+            "checkout": {
+                "files": [
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.AccessorialMatrix.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.CarrierMap.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.Checkout.Module.V2.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.Config.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.FreightMarkup.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.Mapping.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.Mapping.Suggestions.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.Pacejet.Mapper.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.Pacejet.Model.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.Pacejet.Payload.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.Service.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.State.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.Summary.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.UI.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.V2.js",
+                    "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.Model.js",
+                    "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.SS2Model.js",
+                    "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.js"
+                ]
+            }
+        }
+    },
+    "ssp-libraries": {
+        "entry_point": "Modules/PJModule/SuiteScript/RDT.rdt_sca_pacejet.PJModule.js",
+        "files": [
+            "Modules/PJModule/SuiteScript/RDT.rdt_sca_pacejet.PJModule.js",
+            "Modules/PJModule/SuiteScript/PJModule.ServiceController.js",
+            "Modules/PJModule/SuiteScript/RDT.Pacejet.Cart.Model.js",
+            "Modules/PJModule/SuiteScript/RDT.Pacejet.Cart.Helper.js"
+        ]
+    },
+    "local_folder": "Workspace\\rdt_sca_pacejet",
+    "suitescript2": {
+        "files": [
+            "Modules/PJModule/SuiteScript2/PJModule.Service.ss"
+        ]
+    }
 }
