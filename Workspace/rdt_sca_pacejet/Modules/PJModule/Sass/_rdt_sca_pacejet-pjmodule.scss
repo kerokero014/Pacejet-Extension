@@ -1,0 +1,991 @@
+/* ============================================
+   Pacejet Checkout UI
+   - Always show Pacejet table
+   - Hide legacy native select
+   - Responsive / mobile-friendly
+   - Optional loading skeleton support
+   - Apple-style mobile cards
+   ============================================ */
+
+/* =================================
+   ROOT TONE
+================================= */
+
+:root {
+	--rdt-accent: #2563eb;
+	--rdt-accent-soft: #eff6ff;
+	--rdt-border: #e5e7eb;
+}
+
+/* ============================================
+   Shipping Rates Button
+   ============================================ */
+
+.rdt-pj-recalc-btn,
+.rdt-pj-rates-toggle-btn {
+	margin-top: 12px;
+	min-height: 44px;
+	padding: 12px 18px;
+
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+
+	font-size: 13px;
+	font-weight: 700;
+	letter-spacing: 0.02em;
+	text-transform: none;
+
+	border-radius: 12px;
+	border: 1px solid rgba(29, 78, 216, 0.45);
+
+	background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+	color: #ffffff;
+	cursor: pointer;
+
+	box-shadow:
+		0 1px 2px rgba(15, 23, 42, 0.12),
+		0 10px 24px rgba(37, 99, 235, 0.22);
+
+	transition:
+		background 0.2s ease,
+		border-color 0.2s ease,
+		color 0.2s ease,
+		box-shadow 0.2s ease,
+		transform 0.12s ease;
+}
+
+.rdt-pj-recalc-btn:hover,
+.rdt-pj-rates-toggle-btn:hover {
+	background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+	border-color: rgba(29, 78, 216, 0.7);
+	box-shadow:
+		0 4px 10px rgba(37, 99, 235, 0.18),
+		0 14px 30px rgba(37, 99, 235, 0.28);
+	transform: translateY(-1px);
+}
+
+.rdt-pj-recalc-btn:active,
+.rdt-pj-rates-toggle-btn:active {
+	transform: translateY(1px);
+}
+
+.rdt-pj-recalc-btn:focus-visible,
+.rdt-pj-rates-toggle-btn:focus-visible {
+	outline: none;
+	border-color: #2563eb;
+	box-shadow:
+		0 0 0 3px rgba(37, 99, 235, 0.35),
+		0 10px 24px rgba(15, 23, 42, 0.16);
+}
+
+.rdt-pj-recalc-btn:disabled,
+.rdt-pj-rates-toggle-btn:disabled {
+	cursor: not-allowed;
+	opacity: 0.7;
+	color: #dbeafe;
+	background: linear-gradient(180deg, #93c5fd 0%, #60a5fa 100%);
+	border-color: rgba(96, 165, 250, 0.7);
+	box-shadow:
+		0 1px 2px rgba(15, 23, 42, 0.08),
+		inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* ============================================
+   Dirty Pulse (Subtle / Modern)
+   ============================================ */
+
+.rdt-pj-recalc-btn--dirty,
+.rdt-pj-rates-toggle-btn--dirty {
+	position: relative;
+}
+
+.rdt-pj-recalc-btn--dirty::after,
+.rdt-pj-rates-toggle-btn--dirty::after {
+	content: "";
+	position: absolute;
+	inset: -2px;
+	border-radius: inherit;
+	pointer-events: none;
+
+	box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.35);
+	animation: rdt-pj-pulse 1.6s ease-out infinite;
+}
+
+.rdt-pj-accessorials-wrapper {
+	background: #ffffff;
+	border: 1px solid #e5e7eb;
+	margin-bottom: 12px;
+	border-radius: 16px;
+	padding: 14px 14px 12px;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* Title */
+.rdt-pj-accessorials-title {
+	font-weight: 600;
+	font-size: 14px;
+	color: #111827;
+	margin-bottom: 8px;
+}
+
+/* Container now flows horizontally */
+.rdt-pj-accessorials {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+/* Each accessorial = pill */
+.rdt-pj-accessorial {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	border-radius: 2px;
+	border: 1px solid #e5e7eb;
+	background: #fafafa;
+	font-size: 13px;
+	cursor: pointer;
+	transition: background-color 0.15s ease, border-color 0.15s ease,
+		box-shadow 0.15s ease, transform 0.05s ease;
+}
+
+.rdt-pj-accessorial:hover {
+	background: #f4f7ff;
+	border-color: rgba(37, 99, 235, 0.35);
+}
+
+/* Checkbox */
+.rdt-pj-accessorial input[type="checkbox"] {
+	width: 14px;
+	height: 14px;
+	margin: 0;
+	cursor: pointer;
+	accent-color: #2563eb;
+}
+
+/* Label */
+.rdt-pj-accessorial label {
+	cursor: pointer;
+	white-space: nowrap;
+	user-select: none;
+	color: #111827;
+	margin-bottom: 0 !important;
+}
+
+/* Selected pill */
+.rdt-pj-accessorial input[type="checkbox"]:checked+label {
+	font-weight: 600;
+}
+
+/* Stronger selected state */
+.rdt-pj-accessorial input[type="checkbox"]:checked {
+	filter: drop-shadow(0 0 0 rgba(0, 0, 0, 0));
+}
+
+.rdt-pj-accessorial input[type="checkbox"]:checked~label,
+.rdt-pj-accessorial input[type="checkbox"]:checked {
+	color: #1d4ed8;
+}
+
+/* Focus (keyboard users) */
+.rdt-pj-accessorial input[type="checkbox"]:focus-visible {
+	outline: 2px solid rgba(37, 99, 235, 0.55);
+	outline-offset: 2px;
+	border-radius: 4px;
+}
+
+/* Subtle divider before rates */
+.rdt-pj-accessorials-wrapper::after {
+	content: "";
+	display: block;
+	height: 1px;
+	margin-top: 12px;
+	background: linear-gradient(to right,
+			transparent,
+			#e5e7eb,
+			transparent);
+}
+
+/* Rates box untouched */
+.rdt-pj-rates-wrapper {
+	background: #f5f5f7;
+}
+
+/* While we’re still fetching Pacejet, hide native shipmethod block */
+body.rdt-pj-prehide .order-wizard-shipmethod-native {
+	display: none !important;
+}
+
+/* Once Pacejet is active, we still hide the native <select> */
+.rdt-pj-native-hidden {
+	display: none !important;
+}
+
+/* ---------- 2. Wrapper / container ---------- */
+
+.rdt-pj-wrapper {
+	width: 100%;
+	max-width: 100%;
+	box-sizing: border-box;
+	margin-top: 12px;
+	padding: 14px 14px 10px;
+	border-radius: 16px;
+	border: 1px solid #e3e3e8;
+	font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+	font-size: 13px;
+	background: #f5f5f7;
+}
+
+/* On larger screens, give it a nicer max width */
+@media (min-width: 1024px) {
+	.rdt-pj-wrapper {
+		max-width: 1100px;
+	}
+}
+
+/* Hide the native shipmethod module content while Pacejet is driving */
+body.rdt-pj-prehide .order-wizard-shipmethod-module {
+	visibility: hidden !important;
+}
+
+/* But ALWAYS allow our Pacejet UI to show */
+body.rdt-pj-prehide .order-wizard-shipmethod-module .rdt-pj-wrapper,
+body.rdt-pj-prehide .order-wizard-shipmethod-module .rdt-pj-wrapper * {
+	visibility: visible !important;
+}
+
+/* ---------- 3. Header ---------- */
+
+.rdt-pj-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.rdt-pj-header-title {
+	font-weight: 600;
+	font-size: 16px;
+	color: #111111;
+}
+
+.rdt-pj-header-sub {
+	font-size: 13px;
+	color: #6e6e73;
+}
+
+/* ---------- 4. Scrollable table container ---------- */
+.rdt-pj-table-scroll {
+	max-height: 600px;
+	overflow-y: auto;
+	margin-top: 6px;
+}
+
+.rdt-pj-table thead th {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+}
+
+/* ---------- 5. Table layout (desktop / default) ---------- */
+.rdt-pj-table {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+.rdt-pj-table th,
+.rdt-pj-table td {
+	padding: 9px 13px;
+	border-bottom: 1px solid #eee;
+	font-size: 12px;
+}
+
+.rdt-pj-table th {
+	text-align: left;
+	font-weight: 600;
+	background: #f5f5f5;
+}
+
+.rdt-pj-td-price,
+.rdt-pj-td-cost {
+	white-space: nowrap;
+}
+
+/* ---------- 6. Row states + service / origin layout ---------- */
+.rdt-pj-row {
+	cursor: pointer;
+	transition:
+		background-color 0.15s ease,
+		box-shadow 0.15s ease,
+		border-color 0.15s ease,
+		transform 0.08s ease;
+	border-left: 3px solid transparent;
+}
+
+.rdt-pj-row:hover {
+	background-color: #f9fafb;
+}
+
+.rdt-pj-row--selected {
+	background-color: #f3f6ff;
+	border-left-color: #2563eb;
+	box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
+}
+
+.rdt-pj-row--selected .rdt-pj-col-carrier,
+.rdt-pj-row--selected .rdt-pj-col-service,
+.rdt-pj-row--selected .rdt-pj-td-price,
+.rdt-pj-row--selected .rdt-pj-td-cost {
+	font-weight: 600;
+}
+
+.rdt-pj-row[role="radio"]:focus-visible {
+	outline: 2px solid rgba(37, 99, 235, 0.6);
+	outline-offset: 2px;
+}
+
+.rdt-pj-col-carrier {
+	white-space: nowrap;
+}
+
+.rdt-pj-col-service {
+	vertical-align: top;
+}
+
+.rdt-pj-service-main {
+	font-size: 13px;
+	line-height: 1.3;
+}
+
+.rdt-pj-origin-label-text {
+	margin-top: 2px;
+	font-size: 11px;
+	color: #6b7280; // gray-500ish
+}
+
+/* ---------- 7. Tag pill + column + error state ---------- */
+.rdt-pj-col-tag {
+	white-space: nowrap;
+}
+
+.rdt-pj-tag-pill {
+	display: inline-flex;
+	align-items: center;
+	padding: 2px 8px;
+	border-radius: 999px;
+	font-size: 11px;
+	line-height: 1.4;
+	border: 1px solid transparent;
+	background-color: #f4f4f5; // light gray
+	color: #3f3f46; // zinc-700 vibe
+}
+
+/* Recommended = primary blue with check */
+.rdt-pj-tag-pill--recommended {
+	background: #ecfdf5;
+	border-color: #4ade80;
+	color: #166534;
+}
+
+.rdt-pj-tag-pill--recommended::before {
+	content: "✓";
+	font-size: 11px;
+}
+
+/* Fastest = purple-ish lightning */
+.rdt-pj-tag-pill--fast {
+	background: #eff6ff;
+	border-color: #60a5fa;
+	color: #1d4ed8;
+}
+
+.rdt-pj-tag-pill--fast::before {
+	content: "⚡";
+	font-size: 11px;
+}
+
+/* Lowest cost = green tag */
+.rdt-pj-tag-pill--cheap {
+	background: #fefce8;
+	border-color: #facc15;
+	color: #854d0e;
+}
+
+.rdt-pj-tag-pill--cheap::before {
+	content: "$";
+	font-size: 11px;
+}
+
+.rdt-pj-tag-pill--origin {
+	background: #f5f3ff; // soft indigo
+	border-color: #a855f7; // purple-ish border
+	color: #6d28d9; // purple-700 text
+	font-weight: 500;
+}
+
+.rdt-pj-error {
+	margin-bottom: 10px;
+	padding: 8px 10px;
+	border-radius: 6px;
+	border: 1px solid #f3c2c2;
+	background: #fff5f5;
+	font-size: 12px;
+	color: #841b1b;
+}
+
+/* ============================================
+   8. Loading skeleton (optional)
+   - Only shows if your JS injects .rdt-pj-loading markup
+   ============================================ */
+
+.rdt-pj-loading {
+	width: 100%;
+}
+
+.rdt-pj-loading-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 8px;
+	gap: 8px;
+}
+
+.rdt-pj-loading-title {
+	width: 160px;
+	height: 10px;
+	border-radius: 999px;
+	background: #e4e4e4;
+}
+
+.rdt-pj-loading-sub {
+	width: 220px;
+	height: 8px;
+	border-radius: 999px;
+	background: #eeeeee;
+}
+
+/* Skeleton table container */
+.rdt-pj-loading-table {
+	margin-top: 6px;
+	border-radius: 6px;
+	overflow: hidden;
+	border: 1px solid #f0f0f0;
+}
+
+/* Skeleton rows */
+.rdt-pj-skel-row {
+	display: grid;
+	grid-template-columns: 2fr 2fr 1fr 1.5fr 1fr;
+	gap: 6px;
+	padding: 6px 10px;
+	border-bottom: 1px solid #f7f7f7;
+}
+
+.rdt-pj-skel-block {
+	height: 8px;
+	border-radius: 999px;
+	background: linear-gradient(90deg,
+			#f0f0f0 0%,
+			#e3e3e3 50%,
+			#f0f0f0 100%);
+	background-size: 200% 100%;
+	animation: rdt-pj-skel-shimmer 1.2s linear infinite;
+}
+
+/* Make the “Tag” column skeleton a bit smaller */
+.rdt-pj-skel-block--tag {
+	width: 60%;
+}
+
+.rdt-pj-truckload-notice {
+	margin: 14px 0 22px;
+	padding: 14px 16px 14px 18px;
+	border-left: 3px solid #5b8def;
+	background: #f7f9fd;
+	border-radius: 4px;
+}
+
+.rdt-pj-truckload-title {
+	font-size: 13px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	color: #5b8def;
+	margin-bottom: 6px;
+}
+
+.rdt-pj-truckload-body {
+	font-size: 14px;
+	line-height: 1.55;
+	color: #444;
+	max-width: 640px;
+}
+
+/* =================================
+   WRAPPER
+================================= */
+
+.rdt-pj-wrapper {
+	margin-top: 32px;
+	padding: 32px;
+	background: #fff;
+	border-radius: 14px;
+}
+
+/* =================================
+   TABLE
+================================= */
+
+.rdt-pj-table {
+	width: 100%;
+	border-collapse: collapse;
+
+	tbody tr {
+		border-bottom: 1px solid var(--rdt-border);
+		transition: transform .18s ease,
+			box-shadow .18s ease,
+			background .18s ease;
+
+		&:hover {
+			background: var(--rdt-accent-soft);
+			transform: translateY(-2px);
+			box-shadow: 0 6px 18px rgba(0, 0, 0, .06);
+		}
+	}
+}
+
+/* =================================
+   CARRIER + SERVICE
+================================= */
+
+.rdt-pj-col-carrier {
+	font-weight: 600;
+	font-size: 15px;
+	color: #111827;
+	transition: color .2s ease;
+}
+
+.rdt-pj-table tbody tr:hover .rdt-pj-col-carrier {
+	color: var(--rdt-accent);
+}
+
+.rdt-pj-service-main {
+	font-size: 13px;
+	color: #6b7280;
+	margin-top: 4px;
+}
+
+/* =================================
+   PRICE / COST
+================================= */
+
+.rdt-pj-td-price {
+	font-weight: 600;
+	font-size: 18px;
+	text-align: right;
+	transition: all .2s ease;
+}
+
+.rdt-pj-td-cost {
+	font-weight: 500;
+	font-size: 14px;
+	color: #374151;
+	text-align: right;
+}
+
+.rdt-pj-table tbody tr:hover .rdt-pj-td-price {
+	color: var(--rdt-accent);
+	transform: scale(1.05);
+}
+
+.rdt-pj-table tbody tr:hover .rdt-pj-td-cost {
+	color: #111827;
+}
+
+/* =================================
+   ETA
+================================= */
+
+.rdt-pj-col-eta {
+	font-size: 13px;
+	font-weight: 500;
+}
+
+.rdt-pj-col-arrival-date {
+	font-size: 12px;
+	color: #32353a;
+}
+
+/* =================================
+   TAG
+================================= */
+
+.rdt-pj-tag-pill {
+	display: inline-block;
+	padding: 4px 10px;
+	font-size: 11px;
+	border-radius: 999px;
+	background: #f3f4f6;
+	color: #374151;
+	transition: background .2s ease;
+}
+
+.rdt-pj-table tbody tr:hover .rdt-pj-tag-pill {
+	background: var(--rdt-accent-soft);
+	color: var(--rdt-accent);
+}
+
+/* =================================
+   SELECTED ROW
+================================= */
+
+.rdt-pj-row--selected {
+	background: var(--rdt-accent-soft) !important;
+	border-left: 4px solid var(--rdt-accent);
+	animation: rdtFadeIn .25s ease;
+}
+
+/* =================================
+   LOADING SKELETON
+================================= */
+
+.rdt-pj-skeleton-row td {
+	padding: 18px 12px;
+}
+
+.rdt-skeleton {
+	height: 14px;
+	border-radius: 6px;
+	background: linear-gradient(90deg,
+			#f3f4f6 25%,
+			#e5e7eb 37%,
+			#f3f4f6 63%);
+	background-size: 400% 100%;
+	animation: rdtShimmer 1.4s ease infinite;
+}
+
+.rdt-skeleton.short {
+	width: 60px;
+}
+
+.rdt-skeleton.medium {
+	width: 120px;
+}
+
+.rdt-skeleton.long {
+	width: 180px;
+}
+
+/* =================================
+   EXPANDABLE ROW
+================================= */
+
+.rdt-expand-toggle {
+	cursor: pointer;
+	font-size: 12px;
+	color: var(--rdt-accent);
+	font-weight: 600;
+}
+
+.rdt-expand-row {
+	background: #f9fafb;
+	display: none;
+}
+
+.rdt-row--open+.rdt-expand-row {
+	display: table-row;
+	animation: fadeExpand .2s ease;
+}
+
+.rdt-origin-card {
+	background: #fff;
+	border: 1px solid var(--rdt-border);
+	border-radius: 8px;
+	padding: 12px 16px;
+	font-size: 13px;
+	display: flex;
+	justify-content: space-between;
+}
+
+.rdt-disabled {
+	opacity: .45;
+	pointer-events: none;
+	filter: grayscale(.2);
+}
+
+@keyframes rdtFadeIn {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes rdtShimmer {
+	0% {
+		background-position: 100% 0
+	}
+
+	100% {
+		background-position: 0 0
+	}
+}
+
+@keyframes rdt-pj-skel-shimmer {
+	0% {
+		background-position: 200% 0;
+	}
+
+	100% {
+		background-position: -200% 0;
+	}
+}
+
+@keyframes rdt-pj-pulse {
+	0% {
+		box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.35);
+		opacity: 1;
+	}
+
+	70% {
+		box-shadow: 0 0 0 10px rgba(37, 99, 235, 0);
+		opacity: 0.85;
+	}
+
+	100% {
+		opacity: 0;
+	}
+}
+
+@keyframes fadeExpand {
+	from {
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.requestquote-wizard-module-comments-box,
+.order-wizard-showshipments-module-shipping-details,
+.order-wizard-showshipments-module-container,
+.order-wizard-showshipments-actionable-module-shipping-details,
+.order-wizard-showshipments-actionable-module-container,
+.order-wizard-shipmethod-module,
+.order-wizard-msr-shipmethod-package,
+.order-wizard-showpayments-module-details,
+.order-wizard-paymentmethod-selector-module,
+.order-wizard-paymentmethod-purchasenumber-module,
+.order-wizard-cartitems-pickup-in-store-details-container,
+.order-wizard-registeremail-module-show-addresses-container,
+.order-wizard-msr-addresses-module-container,
+.order-wizard-address-module-show-addresses-container,
+.login-register-wrapper-login,
+.login-register-wrapper-register,
+.address-edit,
+.paymentinstrument-ach-edit,
+.paymentinstrument-creditcard-edit,
+.creditcard-edit,
+.address-list,
+.paymentmethod-ach-list,
+.paymentmethod-creditcard-list,
+.creditcard-list,
+.custom-fields-checkout-order-wizard,
+.box-column-bordered {
+	background-color: transparent !important;
+}
+
+
+/** #Review SHipping MOdule Option **/
+.rdt-mui-shipping-card {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 20px;
+	margin-top: 16px;
+	border: 1px solid #272525;
+}
+
+.order-wizard-showshipments-module-shipping-details-method.rdt-mui-native-hidden select,
+.order-wizard-showshipments-module-shipping-details-method select.rdt-mui-native-hidden {
+	display: none !important;
+}
+
+.rdt-mui-shipping-left {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.rdt-mui-chip {
+	display: inline-block;
+	padding: 4px 10px;
+	font-size: 12px;
+	font-weight: 500;
+	border-radius: 3px;
+	background: #e3f2fd;
+	color: #1565c0;
+	width: fit-content;
+	margin-bottom: 10px;
+}
+
+.rdt-mui-service {
+	font-size: 16px;
+	font-weight: 500;
+	color: #212121;
+}
+
+.rdt-mui-price {
+	font-size: 20px;
+	font-weight: 600;
+	color: black;
+}
+
+.rdt-mui-change-btn {
+	background: #5c5a5a;
+	color: #fff;
+	border: none;
+	padding: 8px 18px;
+	font-size: 14px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: background .2s ease;
+	text-transform: uppercase;
+}
+
+.rdt-mui-change-btn:hover {
+	background: #1565c0;
+}
+
+
+/* ============================================
+   9. Mobile / small-screen layout (Apple style)
+   - Turn table rows into iOS-style “cards”
+   ============================================ */
+
+@media (max-width: 640px) {
+	.rdt-pj-wrapper {
+		padding: 14px;
+		background: #f5f5f7;
+	}
+
+	/* Hide table header; cards will have their own visual hierarchy */
+	.rdt-pj-table thead {
+		display: none;
+	}
+
+	.rdt-pj-table tbody {
+		display: block;
+	}
+
+	/* Card layout for each row */
+	.rdt-pj-table tbody tr.rdt-pj-row {
+		display: block;
+		padding: 12px 14px 10px;
+		margin-bottom: 10px;
+		border-radius: 16px;
+		border: 1px solid #e3e3e8;
+		background: #ffffff;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+		border-left-width: 0;
+		/* we’ll rely on the card border on mobile */
+	}
+
+	/* Selected row card */
+	.rdt-pj-table tbody tr.rdt-pj-row--selected {
+		border-color: #007aff;
+		box-shadow:
+			0 0 0 1px rgba(0, 122, 255, 0.25),
+			0 4px 10px rgba(0, 0, 0, 0.08);
+		background: #f5f9ff;
+	}
+
+	.rdt-pj-table tbody tr td {
+		display: block;
+		padding: 4px 0;
+		border: none;
+		font-size: 14px;
+		color: #1c1c1e;
+	}
+
+	.rdt-pj-col-carrier {
+		font-weight: 600;
+		font-size: 14px;
+		margin-bottom: 2px;
+	}
+
+	.rdt-pj-col-service {
+		margin-bottom: 4px;
+	}
+
+	.rdt-pj-service-main {
+		font-size: 13px;
+	}
+
+	.rdt-pj-origin-label-text {
+		font-size: 11px;
+	}
+
+	.rdt-pj-td-price {
+		font-size: 15px;
+		font-weight: 600;
+		margin-top: 2px;
+	}
+
+	.rdt-pj-td-cost {
+		font-size: 13px;
+		font-weight: 500;
+	}
+
+	.rdt-pj-col-eta {
+		font-size: 11px;
+		color: #4b5563;
+		margin-top: 2px;
+	}
+
+	.rdt-pj-col-tag {
+		margin-top: 6px;
+		text-align: left;
+	}
+
+	.rdt-pj-tag-pill {
+		padding: 2px 8px;
+		font-size: 11px;
+	}
+
+	.rdt-pj-skel-row {
+		grid-template-columns: 1.4fr 1.6fr 0.9fr;
+		grid-auto-rows: auto;
+		grid-row-gap: 8px;
+	}
+
+	.rdt-pj-skel-row>.rdt-pj-skel-block:nth-child(4),
+	.rdt-pj-skel-row>.rdt-pj-skel-block:nth-child(5) {
+		grid-column: 1 / -1;
+		width: 40%;
+	}
+
+	.rdt-pj-header {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+
+	.rdt-pj-recalc-btn,
+	.rdt-pj-rates-toggle-btn {
+		width: 100%;
+		padding: 12px 18px;
+		font-size: 14px;
+	}
+
+}

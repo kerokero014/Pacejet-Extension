@@ -1,0 +1,13 @@
+{
+    "type": "object",
+    "properties": { 
+        "PJModule.config": {
+            "group": "extensions",
+            "subtab": "PJModule_subtab",
+            "type": "string",
+            "title": "PJModule_Title",
+            "description": "Config description example",
+            "default": "Default config example"
+        }
+    }
+}

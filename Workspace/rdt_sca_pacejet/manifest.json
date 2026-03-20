@@ -1,0 +1,73 @@
+{
+  "fantasyName": "RDT | SCA Pacejet Extension",
+  "name": "rdt_sca_pacejet",
+  "version": "1.0.0",
+  "vendor": "RDT",
+  "type": "extension",
+  "target": "SCS,SCA",
+  "description": "My cool extension does magic!",
+  "assets": {
+    "img": {
+      "files": []
+    },
+    "fonts": {
+      "files": []
+    },
+    "services": {
+      "files": [
+        "services/PJModule.Service.ss"
+      ]
+    }
+  },
+  "suitescript2": {
+    "files": [
+      "Modules/PJModule/SuiteScript2/PJModule.Service.ss"
+    ]
+  },
+  "target_version": {
+    "SCS": ">=25.1.0",
+    "SCA": ">=25.1.0"
+  },
+  "javascript": {
+    "entry_points": {
+      "checkout": "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.js"
+    },
+    "application": {
+      "checkout": {
+        "files": [
+          "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.js",
+          "Modules/PJModule/JavaScript/PJModule.View.js"
+        ]
+      }
+    }
+  },
+  "ssp-libraries": {
+    "entry_point": "Modules/PJModule/SuiteScript/RDT.rdt_sca_pacejet.PJModule.js",
+    "files": [
+      "Modules/PJModule/SuiteScript/RDT.rdt_sca_pacejet.PJModule.js",
+      "Modules/PJModule/SuiteScript/PJModule.ServiceController.js"
+    ]
+  },
+  "templates": {
+    "application": {
+      "checkout": {
+        "files": [
+          "Modules/PJModule/Templates/rdt_rdt_sca_pacejet_pjmodule.tpl"
+        ]
+      }
+    }
+  },
+  "sass": {
+    "entry_points": {
+      "checkout": "Modules/PJModule/Sass/_rdt_sca_pacejet-pjmodule.scss"
+    },
+    "files": [
+      "Modules/PJModule/Sass/_rdt_sca_pacejet-pjmodule.scss"
+    ]
+  },
+  "configuration": {
+    "files": [
+      "Modules/PJModule/Configuration/PJModule.json"
+    ]
+  }
+}
