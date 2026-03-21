@@ -1,7 +1,7 @@
 define(
   "RDT.Pacejet.Cart.Model",
-  ["LiveOrder.Model", "RDT.Pacejet.Cart.Helper", "N/log"],
-  function (LiveOrderModel, CartHelper, log) {
+  ["LiveOrder.Model", "RDT.Pacejet.Cart.Helper"],
+  function (LiveOrderModel, CartHelper) {
     "use strict";
 
     function getLiveOrderModel() {
@@ -58,18 +58,7 @@ define(
 
       orderUpdate = CartHelper.buildOrderUpdatePayload(currentOrder, payload);
 
-      try {
-        updatedOrder = updateOrder(liveOrder, orderUpdate);
-      } catch (e) {
-        log.error({
-          title: "Pacejet cart update failed",
-          details: {
-            message: e && e.message,
-            shipmethod: payload.shipmethod
-          }
-        });
-        throw e;
-      }
+      updatedOrder = updateOrder(liveOrder, orderUpdate);
 
       if (!updatedOrder || !updatedOrder.summary) {
         updatedOrder = getCurrentOrder(liveOrder);

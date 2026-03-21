@@ -2,29 +2,24 @@
     "name": "rdt_sca_pacejet",
     "fantasyName": "RDT | SCA Pacejet Extension",
     "vendor": "RDT",
-    "version": "1.0.1",
     "type": "extension",
     "target": "SCA,SCS",
     "target_version": {
         "SCA": ">=25.1.0",
         "SCS": ">=25.1.0"
     },
+    "version": "1.0.7",
     "description": "Pacejet checkout integration using LiveOrder cart updates",
-    "skins": [],
     "assets": {
-        "services": {}
+        "services": {
+            "files": [
+                "services/PJModule.Service.ss"
+            ]
+        }
     },
     "configuration": {
         "files": [
             "Modules/PJModule/Configuration/PJModule.json"
-        ]
-    },
-    "sass": {
-        "entry_points": {
-            "checkout": "Modules/PJModule/Sass/_rdt_sca_pacejet-pjmodule.scss"
-        },
-        "files": [
-            "Modules/PJModule/Sass/_rdt_sca_pacejet-pjmodule.scss"
         ]
     },
     "templates": {
@@ -35,6 +30,14 @@
                 ]
             }
         }
+    },
+    "sass": {
+        "entry_points": {
+            "checkout": "Modules/PJModule/Sass/_rdt_sca_pacejet-pjmodule.scss"
+        },
+        "files": [
+            "Modules/PJModule/Sass/_rdt_sca_pacejet-pjmodule.scss"
+        ]
     },
     "javascript": {
         "entry_points": {
@@ -73,6 +76,5 @@
             "Modules/PJModule/SuiteScript/RDT.Pacejet.Cart.Helper.js",
             "Modules/PJModule/SuiteScript/RDT.Pacejet.Cart.Model.js"
         ]
-    },
-    "local_folder": "Workspace\\rdt_sca_pacejet"
+    }
 }

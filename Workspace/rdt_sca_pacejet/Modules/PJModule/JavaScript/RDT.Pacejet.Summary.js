@@ -38,69 +38,40 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
   // --------------------------------------------
   // Read helpers
   // --------------------------------------------
-  function getCustomField(order, id) {
-    var cfs = (order && order.get && order.get("customFields")) || [];
-    for (var i = 0; i < cfs.length; i++) {
-      if (cfs[i].id === id) return num(cfs[i].value);
+  function getOrderSummaryRecord(order) {
+    if (!order || !order.get) {
+      return {};
     }
-    return 0;
+
+    return order.get("summary") || {};
   }
 
   function getShipping(order) {
     if (!order || !order.get) return 0;
 
-    // Pacejet authoritative body field first
-    var pj = getCustomField(order, "custbody_rdt_pacejet_amount");
-    if (pj > 0) return pj;
-
-    // Fallback: NetSuite summary
-    var summary = order.get("summary") || {};
+    var summary = getOrderSummaryRecord(order);
     return num(
-      summary.shippingcost ||
+      summary.shipping ||
+        summary.shippingcost ||
         summary.shippingCost ||
         summary.estimatedshipping ||
         0
     );
   }
 
-  function getCachedSummarySnapshot() {
-    var state = PacejetState && PacejetState.get ? PacejetState.get() : null;
-    var snapshot = state && state.cache ? state.cache.lastGoodSummary : null;
-    return snapshot || null;
-  }
-
-  function cacheSummarySnapshot(data) {
-    if (!data) return;
-
-    var subtotal = num(data.subtotal);
-    var shipping = num(data.shipping);
-    var tax = num(data.tax);
-    var total = num(data.total);
-
-    if (subtotal <= 0 && tax <= 0) return;
-
-    var state = PacejetState && PacejetState.get ? PacejetState.get() : null;
-    if (!state || !state.cache) return;
-
-    state.cache.lastGoodSummary = {
-      subtotal: subtotal,
-      shipping: shipping,
-      tax: tax,
-      total: total || +(subtotal + shipping + tax).toFixed(2),
-      capturedAt: Date.now()
-    };
-  }
-
   function logSummaryDebug(order, stage, data) {
     if (!order || !order.get || !console || !console.log) return;
 
-    var summary = order.get("summary") || {};
+    var summary = getOrderSummaryRecord(order);
     var payload = {
       stage: stage,
       shipmethod: order.get("shipmethod"),
       summarySubtotal: num(summary.subtotal || 0),
       summaryShipping: num(
-        summary.shippingcost || summary.shippingCost || summary.estimatedshipping
+        summary.shipping ||
+          summary.shippingcost ||
+          summary.shippingCost ||
+          summary.estimatedshipping
       ),
       summaryTax: num(
         summary.taxtotal ||
@@ -116,8 +87,7 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
           summary.totalAmount ||
           summary.order_total ||
           0
-      ),
-      pacejetShipping: getShipping(order)
+      )
     };
 
     if (data) {
@@ -130,19 +100,13 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
   function getSummary(order) {
     if (!order || !order.get) return null;
 
-    var summary = order.get("summary") || {};
+    var summary = getOrderSummaryRecord(order);
     var summaryShipping = num(
-      summary.shippingcost || summary.shippingCost || summary.estimatedshipping
+      summary.shipping ||
+        summary.shippingcost ||
+        summary.shippingCost ||
+        summary.estimatedshipping
     );
-    var summaryTax = num(
-      summary.taxtotal ||
-        summary.taxTotal ||
-        summary.tax ||
-        summary.taxamount ||
-        summary.taxAmount ||
-        0
-    );
-    var shipping = num(getShipping(order));
     var tax = num(
       summary.taxtotal ||
         summary.taxTotal ||
@@ -151,43 +115,18 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
         summary.taxAmount ||
         0
     );
+    var shipping = summaryShipping;
     var subtotal = num(summary.subtotal || 0);
-    var summaryTotal = num(
+    var total = num(
       summary.total ||
         summary.totalamount ||
         summary.totalAmount ||
         summary.order_total ||
         0
     );
-    var derivedTax = summaryTotal - subtotal - shipping;
 
-    // Some accounts don't populate taxtotal reliably on the first fetch.
-    // If total exists, infer tax from total - subtotal - shipping.
-    if (!tax && summaryTotal) {
-      tax = +derivedTax.toFixed(2);
-    }
-
-    var shippingChanged = Math.abs(shipping - summaryShipping) > 0.009;
-    var taxChanged = Math.abs(tax - summaryTax) > 0.009;
-    var total =
-      shippingChanged || taxChanged || !summaryTotal
-        ? +(subtotal + shipping + tax).toFixed(2)
-        : summaryTotal;
-
-    var cachedSummary = getCachedSummarySnapshot();
-    var likelyBrokenSummary =
-      subtotal <= 0 && tax <= 0 && shipping > 0 && total <= shipping + 0.009;
-
-    if (cachedSummary && likelyBrokenSummary) {
-      var sameShipping =
-        Math.abs(num(cachedSummary.shipping) - shipping) <= 0.009;
-
-      if (sameShipping || !shipping) {
-        subtotal = num(cachedSummary.subtotal);
-        tax = num(cachedSummary.tax);
-        if (!shipping) shipping = num(cachedSummary.shipping);
-        total = num(cachedSummary.total || subtotal + shipping + tax);
-      }
+    if (!total) {
+      total = +(subtotal + shipping + tax).toFixed(2);
     }
 
     var data = {
@@ -198,7 +137,6 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
     };
 
     logSummaryDebug(order, "getSummary", data);
-    cacheSummarySnapshot(data);
     return data;
   }
 
@@ -207,52 +145,12 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
   // --------------------------------------------
 
   function enforcePacejetSummary(order) {
-    if (!order || !order.get || !order.set) return;
+    if (!order || !order.get) return;
 
-    var summary = order.get("summary") || {};
-    var pj = getCustomField(order, "custbody_rdt_pacejet_amount");
-    var shipping = num(
-      pj ||
-        summary.shippingcost ||
-        summary.shippingCost ||
-        summary.estimatedshipping
-    );
-    var subtotal = num(summary.subtotal || 0);
-    var tax = num(
-      summary.taxtotal ||
-        summary.taxTotal ||
-        summary.tax ||
-        summary.taxamount ||
-        summary.taxAmount
-    );
-    var total = num(
-      summary.total ||
-        summary.totalamount ||
-        summary.totalAmount ||
-        subtotal + shipping + tax
-    );
+    var data = getSummary(order);
+    if (!data) return;
 
-    if (subtotal || summary.subtotal) summary.subtotal = subtotal;
-    summary.shippingcost = shipping;
-    summary.shippingCost = shipping;
-    summary.estimatedshipping = shipping;
-    summary.taxtotal = tax;
-    summary.taxTotal = tax;
-    summary.tax = tax;
-    summary.taxamount = tax;
-    summary.taxAmount = tax;
-    summary.total = total;
-    summary.totalamount = total;
-    summary.totalAmount = total;
-
-    logSummaryDebug(order, "enforcePacejetSummary", {
-      subtotal: subtotal,
-      shipping: shipping,
-      tax: tax,
-      total: total
-    });
-
-    order.set("summary", summary, { silent: true });
+    logSummaryDebug(order, "enforcePacejetSummary", data);
   }
 
   // --------------------------------------------
@@ -607,9 +505,6 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
   function renderSummaryUI(order) {
     if (!order || !order.get) return;
 
-    // enforce first (so getSummary() reads correct)
-    enforcePacejetSummary(order);
-
     var data = getSummary(order);
     if (!data) return;
 
@@ -619,7 +514,6 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
     // Checkout can repaint summary after async view refresh; repaint once shortly after.
     if (SUMMARY_REPAINT_TIMER) clearTimeout(SUMMARY_REPAINT_TIMER);
     SUMMARY_REPAINT_TIMER = setTimeout(function () {
-      enforcePacejetSummary(order);
       var lateData = getSummary(order);
       if (lateData) {
         paintSummary(lateData);

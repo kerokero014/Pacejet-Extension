@@ -2,21 +2,21 @@
 
 define("RDT.Pacejet.Service", [
   "jQuery",
+  "Utils",
   "RDT.Pacejet.State",
   "RDT.Pacejet.Config",
   "RDT.Pacejet.Pacejet.Payload",
   "RDT.Pacejet.Pacejet.Mapper",
-  "RDT.Pacejet.Pacejet.Model",
   "RDT.Pacejet.FreightMarkup",
   "RDT.Pacejet.AccessorialMatrix",
   "RDT.Pacejet.Mapping"
 ], function (
   jQuery,
+  Utils,
   PacejetState,
   Config,
   Payload,
   Mapper,
-  PacejetModel,
   FreightMarkup,
   AccessorialMatrix,
   RateMapping
@@ -37,6 +37,62 @@ define("RDT.Pacejet.Service", [
     hazmat_parcel: "HAZMAT",
     dangerous_goods: "DANGEROUS_GOODS"
   };
+
+  function getServiceUrl() {
+    return Utils.getAbsoluteUrl(
+      getExtensionAssetsPath("services/PJModule.Service.ss")
+    );
+  }
+
+  function getRatesUrl() {
+    var baseUrl =
+      String((Config && Config.getRatesUrl) || "").trim() ||
+      "/app/site/hosting/scriptlet.nl?script=3954&deploy=1";
+    var separator = baseUrl.indexOf("?") === -1 ? "?" : "&";
+
+    return baseUrl + separator + "t=" + Date.now();
+  }
+
+  function requestService(method, payload) {
+    return jQuery.ajax({
+      url: getServiceUrl(),
+      type: method || "POST",
+      contentType: "application/json",
+      dataType: "json",
+      data: payload ? JSON.stringify(payload) : null
+    });
+  }
+
+  function requestRates(payload) {
+    return jQuery.ajax({
+      url: getRatesUrl(),
+      type: "POST",
+      contentType: "application/json",
+      dataType: "json",
+      data: payload ? JSON.stringify(payload) : null
+    });
+  }
+
+  function normalizeModeResponses(serviceResponse, payloads) {
+    if (
+      serviceResponse &&
+      Array.isArray(serviceResponse.modeResults) &&
+      serviceResponse.modeResults.length
+    ) {
+      return serviceResponse.modeResults;
+    }
+
+    if (serviceResponse && serviceResponse.origins) {
+      return [
+        {
+          mode: (payloads && payloads[0] && payloads[0].mode) || "Single",
+          resp: serviceResponse
+        }
+      ];
+    }
+
+    return [];
+  }
 
   function num(t) {
     return Number(String(t || "").replace(/[^0-9.\-]/g, "")) || 0;
@@ -1130,7 +1186,7 @@ define("RDT.Pacejet.Service", [
     return kept;
   }
 
-  function normalizeSuiteletOriginKey(k) {
+  function normalizeBackendOriginKey(k) {
     // "32412-5008|Panama City|FL|US" -> "32412|PANAMA_CITY|FL|US"
     var parts = String(k || "").split("|");
     var zip = (parts[0] || "").split("-")[0].trim();
@@ -1321,26 +1377,15 @@ define("RDT.Pacejet.Service", [
       entry.payload.cartSnapshot = cartSnapshot;
     });
 
-    var calls = payloads.map(function (entry) {
-      var model = new PacejetModel();
-      return model.fetchRates(entry.payload).then(function (resp) {
-        return {
-          mode: entry.mode || "Single",
-          resp: resp || {}
-        };
-      });
-    });
-
-    return jQuery.when.apply(jQuery, calls).then(function () {
+    return requestRates({
+      payloads: payloads
+    }).then(function (serviceResponse) {
       if (state.cache._activeRequestId !== thisRequestId) {
         console.warn("[Pacejet] Ignoring stale rate response.");
         return state.cache.lastRates || [];
       }
 
-      var args = Array.prototype.slice.call(arguments);
-      if (payloads.length === 1) {
-        args = [arguments[0]];
-      }
+      var args = normalizeModeResponses(serviceResponse, payloads);
 
       var modeResults = [];
 
@@ -1371,7 +1416,7 @@ define("RDT.Pacejet.Service", [
           var suiteletDropshipByKey = {};
 
           Object.keys(resp.origins).forEach(function (k) {
-            var nk = normalizeSuiteletOriginKey(k);
+            var nk = normalizeBackendOriginKey(k);
             suiteletDropshipByKey[nk] = !!(
               resp.origins[k] && resp.origins[k].dropShip
             );
@@ -1481,8 +1526,15 @@ define("RDT.Pacejet.Service", [
     });
   }
 
+  function applyRateToCart(payload) {
+    return requestService("POST", jQuery.extend(true, {
+      action: "applyRateToCart"
+    }, payload || {}));
+  }
+
   return {
     fetchRates: fetchRates,
+    applyRateToCart: applyRateToCart,
     getAllowedAccessorialsForCarrier: getAllowedAccessorialsForCarrier,
 
     applyCarrierLimits: applyCarrierLimits,

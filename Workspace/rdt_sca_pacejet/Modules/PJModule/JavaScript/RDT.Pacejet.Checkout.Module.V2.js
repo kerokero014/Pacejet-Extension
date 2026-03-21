@@ -240,7 +240,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         reset: true,
         data: {
           t: Date.now(),
-          fullsummary: "T"
+          fullsummary: true
         }
       })
       .then(function (resp) {
@@ -254,49 +254,68 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       });
   }
 
-  function applyPacejetSelectionToCart(order, payload) {
-    var customFields;
-    var savePayload;
+  function applyServiceResponseToOrder(order, response) {
+    if (!order || !order.set || !response) return;
 
-    if (!order || !order.save) {
+    var updates = {};
+    var customFields = response.customFields || response.customfields;
+
+    if (response.shipmethod) {
+      updates.shipmethod = response.shipmethod;
+    }
+
+    if (response.summary) {
+      updates.summary = response.summary;
+    }
+
+    if (Array.isArray(customFields)) {
+      updates.customFields = customFields;
+      updates.customfields = customFields;
+    }
+
+    order.set(updates);
+  }
+
+  function applyPacejetSelectionToCart(order, payload) {
+    if (!order) {
       return jQuery
         .Deferred()
         .reject(new Error("LiveOrder model is unavailable"))
         .promise();
     }
 
-    customFields = buildPacejetCustomFields(order, payload || {});
-    savePayload = {
-      shipmethod: getShipmethodId(payload && payload.shipCode),
-      customfields: customFields,
-      customFields: customFields
-    };
-
     logSummarySnapshot(order, "before-liveorder-save", {
-      savePayload: savePayload
+      servicePayload: payload
     });
 
-    return order
-      .save(savePayload, {
-        wait: true
+    return PacejetService
+      .applyRateToCart({
+        shipmethod: getShipmethodId(payload && payload.shipCode),
+        pacejetAmount: asNumber(payload && payload.cost, 0),
+        carrier: asString(payload && payload.carrier),
+        service: asString(payload && payload.service),
+        transitDays: payload && payload.transitDays,
+        accessorials: (payload && payload.accessorials) || {},
+        quoteJson: truncateQuoteJson(JSON.stringify(payload || {})),
+        originCount: ((payload && payload.origins) || []).length,
+        originKey:
+          (payload && payload.origins && payload.origins[0] &&
+            payload.origins[0].originKey) ||
+          "",
+        originSummary: buildOriginSummary((payload && payload.origins) || []),
+        customFields: buildPacejetCustomFields(order, payload || {})
       })
       .then(function (resp) {
-        logSummarySnapshot(order, "after-liveorder-save-response", {
-          responseKeys: resp ? Object.keys(resp) : [],
-          shipmethod: order.get("shipmethod")
-        });
-        return resp;
-      })
-      .then(function () {
-        return fetchOrderSummary(order);
-      })
-      .then(function () {
+        applyServiceResponseToOrder(order, resp || {});
+
         logSummarySnapshot(order, "after-liveorder-save", {
-          selectedShipCode: savePayload.shipmethod,
-          customFieldCount: customFields.length
+          responseKeys: resp ? Object.keys(resp) : [],
+          selectedShipCode: getShipmethodId(payload && payload.shipCode)
         });
 
-        return order;
+        return fetchOrderSummary(order).then(function () {
+          return order;
+        });
       });
   }
 
@@ -533,6 +552,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         PacejetSummary.enforcePacejetSummary(order);
         PacejetSummary.renderSummaryUI(order);
         paintSummaryWhenReady(order, "after-liveorder-save");
+        order.trigger("change:summary", order, order.get("summary"));
 
         waitForHostThenRefresh(order);
       })
@@ -705,7 +725,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
           reset: true,
           data: {
             t: Date.now(),
-            fullsummary: "T"
+            fullsummary: true
           }
         })
         .always(function () {

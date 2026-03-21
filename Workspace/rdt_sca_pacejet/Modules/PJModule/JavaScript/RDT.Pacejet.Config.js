@@ -141,20 +141,15 @@ define("RDT.Pacejet.Config", [], function () {
       WILL_CALL: "4255"
     },
 
-    // --------------------------------------------
-    // Suitelet / Pacejet endpoint
-    // --------------------------------------------
+    getRatesUrl: "/app/site/hosting/scriptlet.nl?script=3954&deploy=1",
 
-    // Sandbox
-    // suiteletUrl: "/app/site/hosting/scriptlet.nl?script=3968&deploy=1",
-    // endpoint: "/app/site/hosting/scriptlet.nl?script=3968&deploy=1",
-
-    //Production
-    suiteletUrl: "/app/site/hosting/scriptlet.nl?script=3954&deploy=1",
-    endpoint: "/app/site/hosting/scriptlet.nl?script=3954&deploy=1",
-
-    // Server-side Pacejet endpoint (kept for completeness)
+    // Server-side Pacejet endpoint (used only from SuiteScript)
     pacejetEndpoint: "https://shipapi.pacejet.cc/Rates?api-version=3.5",
+    ratesSuitelet: {
+      path: "/app/site/hosting/scriptlet.nl",
+      script: "customscript_rdt_pacejet_rates_sl",
+      deploy: "customdeploy_rdt_pacejet_rates_sl"
+    },
 
     location: "Curecrete",
 

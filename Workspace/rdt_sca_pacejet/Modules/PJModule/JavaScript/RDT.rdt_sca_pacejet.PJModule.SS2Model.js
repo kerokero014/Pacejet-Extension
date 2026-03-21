@@ -12,9 +12,8 @@ define("RDT.rdt_sca_pacejet.PJModule.SS2Model", ["Backbone", "Utils"], function(
         //@property {String} urlRoot
         urlRoot: Utils.getAbsoluteUrl(
             getExtensionAssetsPath(
-                "Modules/PJModule/SuiteScript2/PJModule.Service.ss"
-            ),
-            true
+                "services/PJModule.Service.ss"
+            )
         )
 });
 });

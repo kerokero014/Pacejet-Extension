@@ -1,7 +1,10 @@
 define(
   "RDT.rdt_sca_pacejet.PJModule.ServiceController",
-  ["ServiceController", "RDT.Pacejet.Cart.Model", "N/log"],
-  function(ServiceController, PacejetCartModel, log) {
+  [
+    "ServiceController",
+    "RDT.Pacejet.Cart.Model"
+  ],
+  function(ServiceController, PacejetCartModel) {
     "use strict";
 
     return ServiceController.extend({
@@ -14,27 +17,16 @@ define(
       get: function get() {
         return {
           ok: true,
-          message: "Pacejet backend service is available"
+          message: "Pacejet cart backend service is available"
         };
       },
 
       post: function post() {
-        try {
-          return PacejetCartModel.applyRateToCart(this.data || {});
-        } catch (e) {
-          log.error({
-            title: "Pacejet service POST failed",
-            details: {
-              message: e && e.message,
-              stack: e && e.stack
-            }
-          });
-          throw e;
-        }
+        return PacejetCartModel.applyRateToCart(this.data || {});
       },
 
       put: function put() {
-        return this.post();
+        return PacejetCartModel.applyRateToCart(this.data || {});
       },
 
       delete: function() {
