@@ -1,32 +1,48 @@
-define("RDT.rdt_sca_pacejet.PJModule.ServiceController", ["ServiceController"], function(
-  ServiceController
-) {
-  "use strict";
+define(
+  "RDT.rdt_sca_pacejet.PJModule.ServiceController",
+  ["ServiceController", "RDT.Pacejet.Cart.Model", "N/log"],
+  function(ServiceController, PacejetCartModel, log) {
+    "use strict";
 
-  return ServiceController.extend({
-    name: "RDT.rdt_sca_pacejet.PJModule.ServiceController",
+    return ServiceController.extend({
+      name: "RDT.rdt_sca_pacejet.PJModule.ServiceController",
 
-    // The values in this object are the validation needed for the current service.
-    options: {
-      common: {}
-    },
+      options: {
+        common: {}
+      },
 
-    get: function get() {
-      return JSON.stringify({
-        message: "Hello World I'm an Extension using a Service!"
-      });
-    },
+      get: function get() {
+        return {
+          ok: true,
+          message: "Pacejet backend service is available"
+        };
+      },
 
-    post: function post() {
-      // not implemented
-    },
+      post: function post() {
+        try {
+          return PacejetCartModel.applyRateToCart(this.data || {});
+        } catch (e) {
+          log.error({
+            title: "Pacejet service POST failed",
+            details: {
+              message: e && e.message,
+              stack: e && e.stack
+            }
+          });
+          throw e;
+        }
+      },
 
-    put: function put() {
-      // not implemented
-    },
+      put: function put() {
+        return this.post();
+      },
 
-    delete: function() {
-      // not implemented
-    }
-  });
-});
+      delete: function() {
+        return {
+          ok: false,
+          error: "DELETE not supported"
+        };
+      }
+    });
+  }
+);

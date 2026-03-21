@@ -63,12 +63,6 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
     );
   }
 
-  function getCachedTotals() {
-    var state = PacejetState && PacejetState.get ? PacejetState.get() : null;
-    var totals = state && state.cache ? state.cache.lastServerTotals : null;
-    return totals || null;
-  }
-
   function getCachedSummarySnapshot() {
     var state = PacejetState && PacejetState.get ? PacejetState.get() : null;
     var snapshot = state && state.cache ? state.cache.lastGoodSummary : null;
@@ -97,11 +91,46 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
     };
   }
 
+  function logSummaryDebug(order, stage, data) {
+    if (!order || !order.get || !console || !console.log) return;
+
+    var summary = order.get("summary") || {};
+    var payload = {
+      stage: stage,
+      shipmethod: order.get("shipmethod"),
+      summarySubtotal: num(summary.subtotal || 0),
+      summaryShipping: num(
+        summary.shippingcost || summary.shippingCost || summary.estimatedshipping
+      ),
+      summaryTax: num(
+        summary.taxtotal ||
+          summary.taxTotal ||
+          summary.tax ||
+          summary.taxamount ||
+          summary.taxAmount ||
+          0
+      ),
+      summaryTotal: num(
+        summary.total ||
+          summary.totalamount ||
+          summary.totalAmount ||
+          summary.order_total ||
+          0
+      ),
+      pacejetShipping: getShipping(order)
+    };
+
+    if (data) {
+      payload.computed = data;
+    }
+
+    console.log("[Pacejet][SummaryDebug]", payload);
+  }
+
   function getSummary(order) {
     if (!order || !order.get) return null;
 
     var summary = order.get("summary") || {};
-    var cachedTotals = getCachedTotals() || {};
     var summaryShipping = num(
       summary.shippingcost || summary.shippingCost || summary.estimatedshipping
     );
@@ -110,27 +139,26 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
         summary.taxTotal ||
         summary.tax ||
         summary.taxamount ||
-        summary.taxAmount
-    );
-    var subtotal = num(summary.subtotal || cachedTotals.subtotal);
-    var summaryTotal = num(
-      summary.total ||
-        cachedTotals.total ||
-        summary.totalamount ||
-        summary.totalAmount ||
-        summary.order_total ||
+        summary.taxAmount ||
         0
     );
+    var shipping = num(getShipping(order));
     var tax = num(
-      cachedTotals.tax ||
-        summary.taxtotal ||
+      summary.taxtotal ||
         summary.taxTotal ||
         summary.tax ||
         summary.taxamount ||
         summary.taxAmount ||
         0
     );
-    var shipping = num(cachedTotals.shipping || getShipping(order));
+    var subtotal = num(summary.subtotal || 0);
+    var summaryTotal = num(
+      summary.total ||
+        summary.totalamount ||
+        summary.totalAmount ||
+        summary.order_total ||
+        0
+    );
     var derivedTax = summaryTotal - subtotal - shipping;
 
     // Some accounts don't populate taxtotal reliably on the first fetch.
@@ -169,6 +197,7 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
       total: total
     };
 
+    logSummaryDebug(order, "getSummary", data);
     cacheSummarySnapshot(data);
     return data;
   }
@@ -181,20 +210,27 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
     if (!order || !order.get || !order.set) return;
 
     var summary = order.get("summary") || {};
-    var cachedTotals = getCachedTotals() || {};
-
     var pj = getCustomField(order, "custbody_rdt_pacejet_amount");
-    var shipping = num(cachedTotals.shipping || pj);
-    var subtotal = num(summary.subtotal || cachedTotals.subtotal);
+    var shipping = num(
+      pj ||
+        summary.shippingcost ||
+        summary.shippingCost ||
+        summary.estimatedshipping
+    );
+    var subtotal = num(summary.subtotal || 0);
     var tax = num(
-      cachedTotals.tax ||
-        summary.taxtotal ||
+      summary.taxtotal ||
         summary.taxTotal ||
         summary.tax ||
         summary.taxamount ||
         summary.taxAmount
     );
-    var total = num(subtotal + shipping + tax);
+    var total = num(
+      summary.total ||
+        summary.totalamount ||
+        summary.totalAmount ||
+        subtotal + shipping + tax
+    );
 
     if (subtotal || summary.subtotal) summary.subtotal = subtotal;
     summary.shippingcost = shipping;
@@ -208,6 +244,13 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
     summary.total = total;
     summary.totalamount = total;
     summary.totalAmount = total;
+
+    logSummaryDebug(order, "enforcePacejetSummary", {
+      subtotal: subtotal,
+      shipping: shipping,
+      tax: tax,
+      total: total
+    });
 
     order.set("summary", summary, { silent: true });
   }
@@ -268,11 +311,97 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
     return updates;
   }
 
-  function ensureInjectedTaxRow(valueText) {
+  function paintLabel(regex, newLabel) {
+    var updates = 0;
+    var $scope = $(
+      ".order-wizard-cart-summary, .order-wizard-cart-summary-container"
+    );
+    if (!$scope.length) return updates;
+
+    $scope.each(function () {
+      $(this)
+        .find(
+          ".order-wizard-cart-summary-grid-left, " +
+            ".order-wizard-cart-summary-label, " +
+            ".order-wizard-cart-summary-subtotal-label, " +
+            ".order-wizard-cart-summary-shipping-label, " +
+            ".order-wizard-cart-summary-tax-label, " +
+            ".order-wizard-cart-summary-total-label, " +
+            ".cart-summary-label, .summary-label, [class*='-label']"
+        )
+        .filter(function () {
+          return regex.test($.trim($(this).text() || ""));
+        })
+        .each(function () {
+          $(this).text(newLabel);
+          updates++;
+        });
+    });
+
+    return updates;
+  }
+
+  function getSummaryContainer() {
     var $container = $(".order-wizard-cart-summary-container").first();
     if (!$container.length) {
       $container = $(".order-wizard-cart-summary").first();
     }
+    return $container;
+  }
+
+  function isElementShown($el) {
+    if (!$el || !$el.length) return false;
+
+    return $el.css("display") !== "none" && $el.css("visibility") !== "hidden";
+  }
+
+  function hasVisibleNativeTaxRow($container) {
+    var found = false;
+
+    $container
+      .find(
+        ".order-wizard-cart-summary-tax, " +
+          ".order-wizard-cart-summary-tax-total, " +
+          ".order-wizard-cart-summary-taxes, " +
+          ".order-wizard-cart-summary-estimated-tax"
+      )
+      .each(function () {
+        var $row = $(this);
+        if (isElementShown($row)) {
+          found = true;
+          return false;
+        }
+      });
+
+    if (found) {
+      return true;
+    }
+
+    $container
+      .find(
+        ".order-wizard-cart-summary-grid-left, " +
+          ".order-wizard-cart-summary-label, " +
+          ".order-wizard-cart-summary-tax-label, " +
+          ".summary-label, [class*='-label']"
+      )
+      .each(function () {
+        var $label = $(this);
+        var text = $.trim($label.text() || "");
+        if (!/^tax(?:\s+total)?$/i.test(text)) {
+          return;
+        }
+
+        if (isElementShown($label)) {
+          found = true;
+          return false;
+        }
+      });
+
+    return found;
+  }
+
+  function ensureInjectedTaxRow(valueText) {
+    var $container = getSummaryContainer();
     if (!$container.length) return 0;
 
     var $row = $container.find(".rdt-pj-tax-row");
@@ -280,11 +409,12 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
       var rowHtml =
         '<p class="order-wizard-cart-summary-grid-float rdt-pj-tax-row">' +
         '<span class="order-wizard-cart-summary-grid-right rdt-pj-tax-value"></span>' +
-        '<span class="order-wizard-cart-summary-tax-label">Tax</span>' +
+        '<span class="order-wizard-cart-summary-grid-left order-wizard-cart-summary-tax-label">Tax</span>' +
         "</p>";
 
       var $shippingBlock = $container.find(
-        ".order-wizard-cart-summary-shipping"
+        ".order-wizard-cart-summary-shipping, " +
+          ".order-wizard-cart-summary-shipping-cost-applied"
       );
       var $totalBlock = $container.find(".order-wizard-cart-summary-total");
 
@@ -305,6 +435,22 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
       .text(valueText);
 
     return 1;
+  }
+
+  function ensureCheckoutTaxRow(data) {
+    if (!data) return;
+    if (isConfirmationPage()) return;
+
+    var $container = getSummaryContainer();
+    if (!$container.length) return;
+
+    var hasNativeTaxBlock = hasVisibleNativeTaxRow($container);
+
+    if (!hasNativeTaxBlock) {
+      ensureInjectedTaxRow(fmtMoney(data.tax));
+    } else if ($container.find(".rdt-pj-tax-row").length) {
+      $container.find(".rdt-pj-tax-row").remove();
+    }
   }
 
   function ensureConfirmationSummary(data) {
@@ -389,16 +535,19 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
     var $totalEls = $(
       ".order-wizard-cart-summary-total .order-wizard-cart-summary-grid-right"
     );
-    var $taxEls = $(
+    var nativeTaxSelector =
       ".order-wizard-cart-summary-tax, " +
-        ".order-wizard-cart-summary-tax .order-wizard-cart-summary-grid-right, " +
-        ".order-wizard-cart-summary-tax .order-wizard-cart-summary-grid-float .order-wizard-cart-summary-grid-right, " +
-        ".order-wizard-cart-summary-tax-total .order-wizard-cart-summary-grid-right, " +
-        ".order-wizard-cart-summary-tax-total .order-wizard-cart-summary-grid-float .order-wizard-cart-summary-grid-right, " +
-        ".order-wizard-cart-summary-taxes .order-wizard-cart-summary-grid-right, " +
-        ".order-wizard-cart-summary-estimated-tax .order-wizard-cart-summary-grid-right, " +
-        ".order-wizard-cart-summary-tax-cost-formatted"
+      ".order-wizard-cart-summary-tax .order-wizard-cart-summary-grid-right, " +
+      ".order-wizard-cart-summary-tax .order-wizard-cart-summary-grid-float .order-wizard-cart-summary-grid-right, " +
+      ".order-wizard-cart-summary-tax-total .order-wizard-cart-summary-grid-right, " +
+      ".order-wizard-cart-summary-tax-total .order-wizard-cart-summary-grid-float .order-wizard-cart-summary-grid-right, " +
+      ".order-wizard-cart-summary-taxes .order-wizard-cart-summary-grid-right, " +
+      ".order-wizard-cart-summary-estimated-tax .order-wizard-cart-summary-grid-right, " +
+      ".order-wizard-cart-summary-tax-cost-formatted";
+    var $taxEls = $(
+      nativeTaxSelector
     );
+    var hasNativeTaxBlock = $(nativeTaxSelector).length > 0;
     if (!$taxEls.length) {
       var $labels = $(
         ".order-wizard-cart-summary .order-wizard-cart-summary-grid-left, " +
@@ -429,6 +578,8 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
     if ($taxEls.length) $taxEls.text(fmtMoney(data.tax));
     if ($totalEls.length) $totalEls.text(fmtMoney(data.total));
 
+    paintLabel(/^tax(?:\s+total)?$/i, "Tax");
+
     // Container-based fallbacks for themes that don't expose standard tax selectors.
     $(
       ".order-wizard-cart-summary-tax, " +
@@ -442,16 +593,11 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
       .last()
       .text(fmtMoney(data.tax));
 
-    var taxPaints = $taxEls.length ? 1 : 0;
-    taxPaints += paintValueByLabel(/\btax\b/i, fmtMoney(data.tax));
+    paintValueByLabel(/^tax(?:\s+total)?$/i, fmtMoney(data.tax));
     paintValueByLabel(/shipping/i, fmtMoney(data.shipping));
     paintValueByLabel(/\btotal\b/i, fmtMoney(data.total));
 
-    if (!taxPaints) {
-      ensureInjectedTaxRow(fmtMoney(data.tax));
-    } else {
-      $(".rdt-pj-tax-row").remove();
-    }
+    ensureCheckoutTaxRow(data);
 
     // Optional compatibility hook
     var $trueTotal = $("#rdt-true-total-amount");
@@ -468,14 +614,32 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
     if (!data) return;
 
     paintSummary(data);
+    ensureCheckoutTaxRow(data);
 
     // Checkout can repaint summary after async view refresh; repaint once shortly after.
     if (SUMMARY_REPAINT_TIMER) clearTimeout(SUMMARY_REPAINT_TIMER);
     SUMMARY_REPAINT_TIMER = setTimeout(function () {
       enforcePacejetSummary(order);
       var lateData = getSummary(order);
-      if (lateData) paintSummary(lateData);
+      if (lateData) {
+        paintSummary(lateData);
+        ensureCheckoutTaxRow(lateData);
+      }
     }, 320);
+
+    setTimeout(function () {
+      var delayedData = getSummary(order);
+      if (delayedData) {
+        ensureCheckoutTaxRow(delayedData);
+      }
+    }, 900);
+
+    setTimeout(function () {
+      var delayedData = getSummary(order);
+      if (delayedData) {
+        ensureCheckoutTaxRow(delayedData);
+      }
+    }, 1600);
   }
 
   return {

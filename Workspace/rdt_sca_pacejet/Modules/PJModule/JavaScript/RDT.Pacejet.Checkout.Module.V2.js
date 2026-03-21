@@ -26,8 +26,10 @@ define("RDT.Pacejet.Checkout.Module.V2", [
   var MODEL_WIRED = false;
   var INITIAL_FETCH_DONE = false;
   var REFRESH_TIMER = null;
-  var ACCESSORIAL_RERATE_TIMER = null;
   var SELECTION_APPLY_TOKEN = 0;
+  var SUMMARY_FETCH_IN_FLIGHT = false;
+
+  var state = PacejetState.get();
 
   var ACCESSORIAL_FIELD_MAP = {
     driver_call: "custbody_callpriortruck",
@@ -42,7 +44,261 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     hazmat_parcel: "custbody_access_hazmat_parcel"
   };
 
-  var state = PacejetState.get();
+  function asNumber(value, fallback) {
+    var num = Number(value);
+    return isFinite(num) ? num : fallback || 0;
+  }
+
+  function asString(value) {
+    if (value === null || value === undefined) {
+      return "";
+    }
+
+    return String(value);
+  }
+
+  function asCheckboxValue(value) {
+    if (
+      value === true ||
+      value === "T" ||
+      value === "true" ||
+      value === 1 ||
+      value === "1"
+    ) {
+      return "T";
+    }
+
+    return "F";
+  }
+
+  function cloneCustomField(field) {
+    return {
+      id: field && (field.id || field.name || field.fieldid || field.fieldId),
+      value: field ? field.value : ""
+    };
+  }
+
+  function getOrderCustomFields(order) {
+    var list =
+      (order &&
+        order.get &&
+        (order.get("customFields") || order.get("customfields"))) ||
+      [];
+
+    if (!Array.isArray(list)) {
+      return [];
+    }
+
+    return list
+      .map(cloneCustomField)
+      .filter(function (field) {
+        return !!field.id;
+      });
+  }
+
+  function getCustomFieldMap(order) {
+    var fields = getOrderCustomFields(order);
+    var fieldMap = {};
+
+    fields.forEach(function (field) {
+      fieldMap[field.id] = field;
+    });
+
+    return fieldMap;
+  }
+
+  function setCustomField(fieldMap, fieldId, value) {
+    if (!fieldId) return;
+
+    fieldMap[fieldId] = {
+      id: fieldId,
+      value: value
+    };
+  }
+
+  function buildEtaDate(transitDays) {
+    var days = asNumber(transitDays, NaN);
+    if (!isFinite(days) || days <= 0) {
+      return "";
+    }
+
+    var eta = new Date();
+    eta.setDate(eta.getDate() + days);
+
+    return eta.toISOString().split("T")[0];
+  }
+
+  function buildOriginSummary(origins) {
+    if (!Array.isArray(origins) || !origins.length) {
+      return "";
+    }
+
+    return origins
+      .map(function (origin) {
+        var label =
+          origin.city ||
+          origin.zip ||
+          origin.originKey ||
+          origin.LocationCode ||
+          "Origin";
+
+        return label + ": $" + asNumber(origin.cost, 0).toFixed(2);
+      })
+      .join("\n");
+  }
+
+  function truncateQuoteJson(value) {
+    var json = asString(value);
+    return json.length > 3800 ? json.slice(0, 3800) : json;
+  }
+
+  function buildPacejetCustomFields(order, payload) {
+    var fieldMap = getCustomFieldMap(order);
+    var origins = payload.origins || [];
+    var transitDays = payload.transitDays;
+    var etaDate = buildEtaDate(transitDays);
+    var originCount = origins.length;
+    var originKey = (origins[0] && origins[0].originKey) || "";
+    var originSummary = buildOriginSummary(origins);
+    var accessorials = payload.accessorials || {};
+    var quoteJson = truncateQuoteJson(JSON.stringify(payload));
+
+    setCustomField(
+      fieldMap,
+      "custbody_rdt_pacejet_amount",
+      asNumber(payload.cost, 0)
+    );
+    setCustomField(
+      fieldMap,
+      "custbody_rdt_pj_carrier_name",
+      asString(payload.carrier || "")
+    );
+    setCustomField(
+      fieldMap,
+      "custbody_rdt_pj_service_name",
+      asString(payload.service || "")
+    );
+    setCustomField(
+      fieldMap,
+      "custbody_rdt_pj_accessorial_total",
+      asNumber(payload.accessorialDelta, 0)
+    );
+    setCustomField(fieldMap, "custbody_rdt_pj_quote_json", quoteJson);
+
+    if (transitDays !== null && transitDays !== undefined && transitDays !== "") {
+      setCustomField(
+        fieldMap,
+        "custbody_rdt_pj_transit_days",
+        asNumber(transitDays, 0)
+      );
+    }
+
+    if (etaDate) {
+      setCustomField(fieldMap, "custbody_rdt_pj_est_arrival_date", etaDate);
+    }
+
+    if (originCount) {
+      setCustomField(fieldMap, "custbody_rdt_pj_origin_count", originCount);
+    }
+
+    if (originKey) {
+      setCustomField(fieldMap, "custbody_rdt_pj_origin_key", originKey);
+    }
+
+    if (originSummary) {
+      setCustomField(fieldMap, "custbody_rdt_pj_origin_summary", originSummary);
+    }
+
+    Object.keys(ACCESSORIAL_FIELD_MAP).forEach(function (key) {
+      setCustomField(
+        fieldMap,
+        ACCESSORIAL_FIELD_MAP[key],
+        asCheckboxValue(accessorials[key])
+      );
+    });
+
+    return Object.keys(fieldMap).map(function (fieldId) {
+      return fieldMap[fieldId];
+    });
+  }
+
+  function fetchOrderSummary(order) {
+    if (!order || !order.fetch) {
+      return jQuery.Deferred().resolve(order).promise();
+    }
+
+    if (SUMMARY_FETCH_IN_FLIGHT) {
+      return jQuery.Deferred().resolve(order).promise();
+    }
+
+    SUMMARY_FETCH_IN_FLIGHT = true;
+
+    logSummarySnapshot(order, "before-followup-fetch");
+
+    return order
+      .fetch({
+        reset: true,
+        data: {
+          t: Date.now(),
+          fullsummary: "T"
+        }
+      })
+      .then(function (resp) {
+        logSummarySnapshot(order, "after-followup-fetch", {
+          responseKeys: resp ? Object.keys(resp) : []
+        });
+        return resp;
+      })
+      .always(function () {
+        SUMMARY_FETCH_IN_FLIGHT = false;
+      });
+  }
+
+  function applyPacejetSelectionToCart(order, payload) {
+    var customFields;
+    var savePayload;
+
+    if (!order || !order.save) {
+      return jQuery
+        .Deferred()
+        .reject(new Error("LiveOrder model is unavailable"))
+        .promise();
+    }
+
+    customFields = buildPacejetCustomFields(order, payload || {});
+    savePayload = {
+      shipmethod: getShipmethodId(payload && payload.shipCode),
+      customfields: customFields,
+      customFields: customFields
+    };
+
+    logSummarySnapshot(order, "before-liveorder-save", {
+      savePayload: savePayload
+    });
+
+    return order
+      .save(savePayload, {
+        wait: true
+      })
+      .then(function (resp) {
+        logSummarySnapshot(order, "after-liveorder-save-response", {
+          responseKeys: resp ? Object.keys(resp) : [],
+          shipmethod: order.get("shipmethod")
+        });
+        return resp;
+      })
+      .then(function () {
+        return fetchOrderSummary(order);
+      })
+      .then(function () {
+        logSummarySnapshot(order, "after-liveorder-save", {
+          selectedShipCode: savePayload.shipmethod,
+          customFieldCount: customFields.length
+        });
+
+        return order;
+      });
+  }
 
   function applyCarrierAccessorialRules(payload) {
     if (!payload) return;
@@ -85,30 +341,6 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     return null;
   }
 
-  function getOrderInternalId(order) {
-    if (!order || !order.get) return "";
-
-    var candidates = [
-      order.get("internalid"),
-      order.get("internalId"),
-      order.get("id")
-    ];
-
-    var confirmation = order.get("confirmation") || {};
-    candidates.push(
-      confirmation.internalid,
-      confirmation.internalId,
-      confirmation.id
-    );
-
-    for (var i = 0; i < candidates.length; i++) {
-      var value = String(candidates[i] || "").trim();
-      if (/^\d+$/.test(value)) return value;
-    }
-
-    return "";
-  }
-
   function logSummarySnapshot(order, stage, extra) {
     if (!order || !order.get) return;
 
@@ -136,188 +368,6 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     if (extra) snapshot.extra = extra;
 
     console.log("[Pacejet][TaxDebug] summary snapshot", snapshot);
-  }
-
-  function getSummaryShipping(summary) {
-    summary = summary || {};
-    return Number(
-      summary.shippingcost ||
-        summary.shippingCost ||
-        summary.estimatedshipping ||
-        0
-    );
-  }
-
-  function getSummaryTax(summary) {
-    summary = summary || {};
-    return Number(
-      summary.taxtotal ||
-        summary.taxTotal ||
-        summary.tax ||
-        summary.taxamount ||
-        summary.taxAmount ||
-        0
-    );
-  }
-
-  function captureBaseCartTotals(order) {
-    if (!order || !order.get) return;
-
-    state.cache = state.cache || {};
-
-    var summary = order.get("summary") || {};
-    var shipping = getSummaryShipping(summary);
-
-    // Keep the pre-shipping cart subtotal/tax as the baseline.
-    // Refresh it whenever checkout is still in the zero-shipping state.
-    if (!state.cache.baseCartTotals || shipping <= 0.009) {
-      state.cache.baseCartTotals = {
-        subtotal: Number(summary.subtotal || 0),
-        tax: getSummaryTax(summary),
-        capturedAt: Date.now()
-      };
-    }
-  }
-
-  function normalizeServerTotalsForDisplay(order, totals) {
-    totals = totals || {};
-
-    var summary = (order && order.get && order.get("summary")) || {};
-    var base = (state.cache && state.cache.baseCartTotals) || {};
-    var subtotal = Number(
-      base.subtotal || summary.subtotal || totals.subtotal || 0
-    );
-    var shipping = Number(totals.shipping || 0);
-    var tax = Number(totals.tax || getSummaryTax(summary) || 0);
-
-    return {
-      subtotal: subtotal,
-      shipping: shipping,
-      tax: tax,
-      total: Number(subtotal + shipping + tax)
-    };
-  }
-
-  function requestServerAppliedTotals(order, selection, attempt) {
-    attempt = attempt || 0;
-
-    if (!selection || !selection.shipCode) {
-      return jQuery.Deferred().reject().promise();
-    }
-
-    var orderId = getOrderInternalId(order);
-
-    if (!orderId) {
-      console.warn("[Pacejet] No SO yet (checkout) — skipping Suitelet");
-      return jQuery.Deferred().reject().promise();
-    }
-
-    return $.ajax({
-      url: "/app/site/hosting/scriptlet.nl?script=3956&deploy=1",
-      type: "POST",
-      contentType: "application/json",
-      data: JSON.stringify({
-        orderId: orderId,
-        shipmethod: selection.shipCode,
-        pacejetAmount: selection.cost || 0,
-        carrier: selection.carrier || "",
-        service: selection.service || "",
-        quoteJson: JSON.stringify(selection)
-      })
-    }).then(function (resp) {
-      if (resp && resp.retry && attempt < 5) {
-        return jQuery
-          .Deferred(function (defer) {
-            setTimeout(function () {
-              requestServerAppliedTotals(order, selection, attempt + 1).then(
-                defer.resolve,
-                defer.reject
-              );
-            }, 500);
-          })
-          .promise();
-      }
-
-      if (!resp || !resp.ok || !resp.totals) {
-        return jQuery
-          .Deferred()
-          .reject(new Error("Pacejet totals apply failed"))
-          .promise();
-      }
-
-      return resp;
-    });
-  }
-
-  function applyServerTotalsToOrder(order, resp, stage) {
-    if (!order || !order.get || !order.set || !resp || !resp.totals) return;
-
-    var totals = normalizeServerTotalsForDisplay(order, resp.totals || {});
-    var summary = order.get("summary") || {};
-
-    state.cache = state.cache || {};
-    state.cache.lastServerTotals = {
-      subtotal: Number(totals.subtotal || 0),
-      shipping: Number(totals.shipping || 0),
-      tax: Number(totals.tax || 0),
-      total: Number(totals.total || 0)
-    };
-
-    var subtotal = Number(totals.subtotal || summary.subtotal || 0);
-    var shipping = Number(totals.shipping || 0);
-    var tax = Number(totals.tax || 0);
-    var total = Number(totals.total || subtotal + shipping + tax);
-
-    summary.subtotal = subtotal;
-    summary.shippingcost = shipping;
-    summary.shippingCost = shipping;
-    summary.estimatedshipping = shipping;
-    summary.taxtotal = tax;
-    summary.taxTotal = tax;
-    summary.tax = tax;
-    summary.taxamount = tax;
-    summary.taxAmount = tax;
-    summary.total = total;
-    summary.totalamount = total;
-    summary.totalAmount = total;
-
-    order.set("summary", summary);
-    order.trigger("change");
-    order.trigger("change:summary");
-    order.trigger("sync");
-
-    console.log("[Pacejet][TaxDebug] applied suitelet totals", {
-      stage: stage || "unknown",
-      totals: totals
-    });
-  }
-
-  function applyLocalSelectionToSummary(order, selection, stage) {
-    if (!order || !order.get || !order.set || !selection) return;
-
-    var summary = order.get("summary") || {};
-    var subtotal = Number(summary.subtotal || 0);
-    var tax = getSummaryTax(summary);
-    var shipping = Number(selection.cost || 0);
-    var total = Number(subtotal + shipping + tax);
-
-    summary.shippingcost = shipping;
-    summary.shippingCost = shipping;
-    summary.estimatedshipping = shipping;
-    summary.total = total;
-    summary.totalamount = total;
-    summary.totalAmount = total;
-
-    order.set("summary", summary);
-    order.trigger("change");
-    order.trigger("change:summary");
-
-    console.log("[Pacejet][TaxDebug] applied local selected shipping", {
-      stage: stage || "unknown",
-      shipping: shipping,
-      tax: tax,
-      total: total
-    });
   }
 
   function paintSummaryWhenReady(order, reason) {
@@ -409,121 +459,6 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     }
   }
 
-  function persistPacejetSelection(selection) {
-    var order = getOrderModel();
-    if (!order || !selection) {
-      return jQuery.Deferred().resolve().promise();
-    }
-
-    var customFields = order.get("customFields") || [];
-
-    function setField(id, value) {
-      if (value === undefined || value === null || value === "") return;
-
-      for (var i = 0; i < customFields.length; i++) {
-        if (customFields[i].id === id) {
-          customFields[i].value = value;
-          return;
-        }
-      }
-
-      customFields.push({ id: id, value: value });
-    }
-
-    /* ===============================
-     * CORE RATE FIELDS
-     * =============================== */
-
-    setField("custbody_rdt_pacejet_amount", selection.cost || 0);
-    setField("custbody_rdt_pj_carrier_name", selection.carrier || "");
-    setField("custbody_rdt_pj_service_name", selection.service || "");
-
-    setField(
-      "custbody_rdt_pj_accessorial_total",
-      selection.accessorialDelta || 0
-    );
-
-    /* ===============================
-     * TRANSIT DAYS + ARRIVAL DATE
-     * =============================== */
-
-    var t = Number(selection.transitDays);
-    if (!isNaN(t) && t > 0) {
-      setField("custbody_rdt_pj_transit_days", t);
-
-      var d = new Date();
-      d.setDate(d.getDate() + t);
-
-      setField(
-        "custbody_rdt_pj_est_arrival_date",
-        d.toISOString().split("T")[0]
-      );
-    }
-
-    /* ===============================
-     * ORIGIN DETAILS
-     * =============================== */
-
-    if (selection.origins && selection.origins.length) {
-      setField("custbody_rdt_pj_origin_count", selection.origins.length);
-
-      var first = selection.origins[0] || {};
-      setField(
-        "custbody_rdt_pj_origin_key",
-        first.originKey || first.zip || first.city || ""
-      );
-
-      var summary = selection.origins
-        .map(function (o) {
-          return (
-            (o.city || o.zip || o.originKey || "Origin") +
-            ": $" +
-            Number(o.cost || 0).toFixed(2)
-          );
-        })
-        .join("\n");
-
-      setField("custbody_rdt_pj_origin_summary", summary);
-    }
-
-    /* ===============================
-     * ACCESSORIAL CHECKBOXES
-     * =============================== */
-
-    if (selection.accessorials) {
-      Object.keys(ACCESSORIAL_FIELD_MAP).forEach(function (key) {
-        var fieldId = ACCESSORIAL_FIELD_MAP[key];
-        var checked = !!selection.accessorials[key];
-
-        // NetSuite checkbox fields require "T" / "F"
-        setField(fieldId, checked ? "T" : "F");
-      });
-    }
-
-    /* ===============================
-     * RAW QUOTE JSON (DEBUG / AUDIT)
-     * =============================== */
-
-    try {
-      var json = JSON.stringify(selection);
-      if (json.length > 3800) json = json.slice(0, 3800);
-      setField("custbody_rdt_pj_quote_json", json);
-    } catch (_e) {}
-
-    order.set("customFields", customFields);
-    return order.save();
-  }
-
-  function applyShipmethodToOrder(order, shipCode) {
-    if (!order || !shipCode) {
-      return jQuery.Deferred().reject().promise();
-    }
-
-    order.set("shipmethod", String(shipCode));
-
-    return order.save();
-  }
-
   PacejetUI.onSelect(function (payload) {
     if (!payload) return;
 
@@ -570,8 +505,6 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     state.flags.suppressRefresh = true;
     state.flags.ratesVisible = true;
 
-    captureBaseCartTotals(order);
-
     logSummarySnapshot(order, "before-apply", {
       selectedShipCode: payload.shipCode,
       selectedCost: payload.cost
@@ -581,61 +514,31 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       window.ShippingAppliedFlag = false;
     }
 
-    applyShipmethodToOrder(order, payload.shipCode)
+    applyPacejetSelectionToCart(order, {
+      shipCode: payload.shipCode,
+      cost: payload.cost || 0,
+      carrier: payload.carrier || "",
+      service: payload.service || "",
+      transitDays: payload.transitDays,
+      origins: payload.origins || [],
+      accessorials: state.selection.accessorials || {}
+    })
       .then(function () {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
 
-        return persistPacejetSelection(state.selection);
-      })
-      .then(function () {
-        if (applyToken !== SELECTION_APPLY_TOKEN) return;
+        console.log("[Pacejet] LiveOrder applied successfully");
 
-        applyLocalSelectionToSummary(order, state.selection, "after-selection");
+        syncSelectionFromOrder(order);
+
         PacejetSummary.enforcePacejetSummary(order);
         PacejetSummary.renderSummaryUI(order);
-        paintSummaryWhenReady(order, "after-selection");
+        paintSummaryWhenReady(order, "after-liveorder-save");
 
-        return requestServerAppliedTotals(order, state.selection).then(
-          function (resp) {
-            if (applyToken !== SELECTION_APPLY_TOKEN) return;
-
-            applyServerTotalsToOrder(order, resp, "after-suitelet-apply");
-          },
-          function (err) {
-            console.warn(
-              "[Pacejet] Unable to refresh suitelet totals during checkout",
-              err
-            );
-            return null;
-          }
-        );
-      })
-      .then(function () {
-        if (applyToken !== SELECTION_APPLY_TOKEN) return;
-
-        return order.fetch({
-          reset: true,
-          data: {
-            t: Date.now(),
-            fullsummary: "T"
-          }
-        });
-      })
-      .then(function () {
-        if (applyToken !== SELECTION_APPLY_TOKEN) return;
-
-        logSummarySnapshot(order, "after-shipmethod-set");
-        PacejetSummary.enforcePacejetSummary(order);
-        PacejetSummary.renderSummaryUI(order);
-        paintSummaryWhenReady(order, "after-shipmethod-set");
-
-        // The checkout step can re-render after shipmethod save/fetch.
-        // Reattach the Pacejet UI so the selected rates table stays visible.
         waitForHostThenRefresh(order);
       })
       .fail(function (err) {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
-        console.error("[Pacejet] Failed to apply shipmethod", err);
+        console.error("[Pacejet] LiveOrder save failed", err);
       })
       .always(function () {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
@@ -797,9 +700,17 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
     if (!INITIAL_FETCH_DONE) {
       INITIAL_FETCH_DONE = true;
-      order.fetch().always(function () {
-        waitForHostThenRefresh(order);
-      });
+      order
+        .fetch({
+          reset: true,
+          data: {
+            t: Date.now(),
+            fullsummary: "T"
+          }
+        })
+        .always(function () {
+          waitForHostThenRefresh(order);
+        });
     } else {
       waitForHostThenRefresh(order);
     }

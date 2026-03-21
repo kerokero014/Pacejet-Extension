@@ -2,21 +2,17 @@
     "name": "rdt_sca_pacejet",
     "fantasyName": "RDT | SCA Pacejet Extension",
     "vendor": "RDT",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "type": "extension",
-    "target": "SCS,SCA",
+    "target": "SCA,SCS",
     "target_version": {
-        "SCS": ">=25.1.0",
-        "SCA": ">=25.1.0"
+        "SCA": ">=25.1.0",
+        "SCS": ">=25.1.0"
     },
-    "description": "Pacejet checkout integration with backend cart application",
+    "description": "Pacejet checkout integration using LiveOrder cart updates",
     "skins": [],
     "assets": {
-        "services": {
-            "files": [
-                "services/PJModule.Service.ss"
-            ]
-        }
+        "services": {}
     },
     "configuration": {
         "files": [
@@ -62,9 +58,9 @@
                     "Modules/PJModule/JavaScript/RDT.Pacejet.Summary.js",
                     "Modules/PJModule/JavaScript/RDT.Pacejet.UI.js",
                     "Modules/PJModule/JavaScript/RDT.Pacejet.V2.js",
+                    "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.js",
                     "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.Model.js",
-                    "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.SS2Model.js",
-                    "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.js"
+                    "Modules/PJModule/JavaScript/RDT.rdt_sca_pacejet.PJModule.SS2Model.js"
                 ]
             }
         }
@@ -74,14 +70,9 @@
         "files": [
             "Modules/PJModule/SuiteScript/RDT.rdt_sca_pacejet.PJModule.js",
             "Modules/PJModule/SuiteScript/PJModule.ServiceController.js",
-            "Modules/PJModule/SuiteScript/RDT.Pacejet.Cart.Model.js",
-            "Modules/PJModule/SuiteScript/RDT.Pacejet.Cart.Helper.js"
+            "Modules/PJModule/SuiteScript/RDT.Pacejet.Cart.Helper.js",
+            "Modules/PJModule/SuiteScript/RDT.Pacejet.Cart.Model.js"
         ]
     },
-    "local_folder": "Workspace\\rdt_sca_pacejet",
-    "suitescript2": {
-        "files": [
-            "Modules/PJModule/SuiteScript2/PJModule.Service.ss"
-        ]
-    }
+    "local_folder": "Workspace\\rdt_sca_pacejet"
 }
