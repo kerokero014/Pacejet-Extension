@@ -71,6 +71,24 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     return "F";
   }
 
+  function normalizeOrigins(origins) {
+    return Array.isArray(origins) ? origins : [];
+  }
+
+  function normalizeAccessorialSelection(accessorials) {
+    return accessorials && typeof accessorials === "object" && !Array.isArray(accessorials)
+      ? accessorials
+      : {};
+  }
+
+  function normalizeAccessorialArray(accessorials) {
+    return Array.isArray(accessorials) ? accessorials : [];
+  }
+
+  function normalizeCustomFields(customFields) {
+    return Array.isArray(customFields) ? customFields : [];
+  }
+
   function cloneCustomField(field) {
     return {
       id: field && (field.id || field.name || field.fieldid || field.fieldId),
@@ -154,13 +172,15 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
   function buildPacejetCustomFields(order, payload) {
     var fieldMap = getCustomFieldMap(order);
-    var origins = payload.origins || [];
+    var origins = normalizeOrigins(payload && payload.origins);
     var transitDays = payload.transitDays;
     var etaDate = buildEtaDate(transitDays);
     var originCount = origins.length;
     var originKey = (origins[0] && origins[0].originKey) || "";
     var originSummary = buildOriginSummary(origins);
-    var accessorials = payload.accessorials || {};
+    var accessorials = normalizeAccessorialSelection(
+      payload && (payload.accessorialSelection || payload.accessorials)
+    );
     var quoteJson = truncateQuoteJson(JSON.stringify(payload));
 
     setCustomField(
@@ -284,26 +304,36 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         .promise();
     }
 
+    var normalizedOrigins = normalizeOrigins(payload && payload.origins);
+    var normalizedAccessorialSelection = normalizeAccessorialSelection(
+      payload && payload.accessorialSelection
+    );
+    var customFields = normalizeCustomFields(
+      buildPacejetCustomFields(order, {
+        shipCode: payload && payload.shipCode,
+        cost: payload && payload.cost,
+        carrier: payload && payload.carrier,
+        service: payload && payload.service,
+        transitDays: payload && payload.transitDays,
+        origins: normalizedOrigins,
+        accessorialSelection: normalizedAccessorialSelection
+      })
+    );
+
     logSummarySnapshot(order, "before-liveorder-save", {
-      servicePayload: payload
+      servicePayload: {
+        shipmethod: getShipmethodId(payload && payload.shipCode),
+        accessorials: [],
+        customFields: customFields
+      }
     });
 
     return PacejetService
       .applyRateToCart({
         shipmethod: getShipmethodId(payload && payload.shipCode),
-        pacejetAmount: asNumber(payload && payload.cost, 0),
-        carrier: asString(payload && payload.carrier),
-        service: asString(payload && payload.service),
-        transitDays: payload && payload.transitDays,
-        accessorials: (payload && payload.accessorials) || {},
-        quoteJson: truncateQuoteJson(JSON.stringify(payload || {})),
-        originCount: ((payload && payload.origins) || []).length,
-        originKey:
-          (payload && payload.origins && payload.origins[0] &&
-            payload.origins[0].originKey) ||
-          "",
-        originSummary: buildOriginSummary((payload && payload.origins) || []),
-        customFields: buildPacejetCustomFields(order, payload || {})
+        accessorials: normalizeAccessorialArray(payload && payload.accessorials),
+        accessorialSelection: normalizedAccessorialSelection,
+        customFields: customFields
       })
       .then(function (resp) {
         applyServiceResponseToOrder(order, resp || {});
@@ -517,7 +547,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     state.selection.carrier = payload.carrier;
     state.selection.service = payload.service;
     state.selection.transitDays = payload.transitDays;
-    state.selection.origins = payload.origins || [];
+    state.selection.origins = normalizeOrigins(payload.origins);
 
     var applyToken = ++SELECTION_APPLY_TOKEN;
 
@@ -539,8 +569,11 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       carrier: payload.carrier || "",
       service: payload.service || "",
       transitDays: payload.transitDays,
-      origins: payload.origins || [],
-      accessorials: state.selection.accessorials || {}
+      origins: normalizeOrigins(payload.origins),
+      accessorials: normalizeAccessorialArray(payload.accessorials),
+      accessorialSelection: normalizeAccessorialSelection(
+        state.selection.accessorials
+      )
     })
       .then(function () {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
@@ -558,7 +591,10 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       })
       .fail(function (err) {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
-        console.error("[Pacejet] LiveOrder save failed", err);
+        console.error(
+          "[Pacejet] LiveOrder save failed",
+          err && err.responseText ? err.responseText : err
+        );
       })
       .always(function () {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;

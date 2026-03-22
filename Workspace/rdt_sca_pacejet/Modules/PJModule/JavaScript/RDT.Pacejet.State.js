@@ -38,7 +38,8 @@ define("RDT.Pacejet.State", [], function () {
     },
 
     setAccessorials: function (acc) {
-      state.selection.accessorials = acc || {};
+      state.selection.accessorials =
+        acc && typeof acc === "object" && !Array.isArray(acc) ? acc : {};
     },
 
     recordUnmapped: function (info) {

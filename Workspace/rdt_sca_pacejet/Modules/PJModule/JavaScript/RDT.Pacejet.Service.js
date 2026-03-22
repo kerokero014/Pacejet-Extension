@@ -73,6 +73,38 @@ define("RDT.Pacejet.Service", [
     });
   }
 
+  function normalizeAccessorialArray(accessorials) {
+    return Array.isArray(accessorials) ? accessorials : [];
+  }
+
+  function normalizeAccessorialSelection(accessorials) {
+    return accessorials && typeof accessorials === "object" && !Array.isArray(accessorials)
+      ? accessorials
+      : {};
+  }
+
+  function normalizeCustomFields(customFields) {
+    return Array.isArray(customFields) ? customFields : [];
+  }
+
+  function buildApplyRatePayload(payload) {
+    payload = payload || {};
+
+    return {
+      action: "applyRateToCart",
+      shipmethod:
+        payload.shipmethod === null || payload.shipmethod === undefined
+          ? ""
+          : String(payload.shipmethod),
+      accessorials: normalizeAccessorialArray(payload.accessorials),
+      accessorialSelection: normalizeAccessorialSelection(
+        payload.accessorialSelection
+      ),
+      customFields: normalizeCustomFields(payload.customFields),
+      customfields: normalizeCustomFields(payload.customFields)
+    };
+  }
+
   function buildRawRateRequest(payloads, cartSnapshot) {
     var firstEntry =
       Array.isArray(payloads) && payloads.length ? payloads[0] || {} : {};
@@ -1535,9 +1567,7 @@ define("RDT.Pacejet.Service", [
   }
 
   function applyRateToCart(payload) {
-    return requestService("POST", jQuery.extend(true, {
-      action: "applyRateToCart"
-    }, payload || {}));
+    return requestService("POST", buildApplyRatePayload(payload));
   }
 
   return {

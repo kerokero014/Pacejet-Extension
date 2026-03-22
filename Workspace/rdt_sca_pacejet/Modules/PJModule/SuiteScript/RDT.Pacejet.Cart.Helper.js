@@ -141,8 +141,29 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     return date.toISOString().split("T")[0];
   }
 
+  function normalizeOrigins(origins) {
+    return Array.isArray(origins) ? origins : [];
+  }
+
+  function normalizeAccessorialArray(accessorials) {
+    return Array.isArray(accessorials) ? accessorials : [];
+  }
+
+  function normalizeAccessorialSelection(accessorials) {
+    return accessorials && typeof accessorials === "object" && !Array.isArray(accessorials)
+      ? accessorials
+      : {};
+  }
+
+  function normalizeCustomFields(customFields) {
+    return Array.isArray(customFields) ? customFields : [];
+  }
+
   function normalizePayload(payload) {
     var raw = payload || {};
+    var accessorialSelection = normalizeAccessorialSelection(
+      raw.accessorialSelection || raw.accessorialMap
+    );
 
     payload = payload || {};
 
@@ -175,8 +196,9 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       originSummary: asString(
         firstDefined(raw.originSummary, raw.pacejet_origin_summary)
       ),
-      accessorials: raw.accessorials || {},
-      customFields: raw.customFields || raw.customfields || [],
+      accessorials: normalizeAccessorialArray(raw.accessorials),
+      accessorialSelection: accessorialSelection,
+      customFields: normalizeCustomFields(raw.customFields || raw.customfields),
       raw: raw
     };
   }
@@ -203,19 +225,20 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
 
   function mergeCustomFields(existingFields, payload) {
     var fieldMap = getFieldMap(existingFields);
-    var customFields = Array.isArray(payload.customFields)
-      ? payload.customFields
-      : [];
-    var origins = payload.raw && payload.raw.origins;
+    var customFields = normalizeCustomFields(payload.customFields);
+    var origins = normalizeOrigins(payload.raw && payload.raw.origins);
     var originSummary = payload.originSummary || buildOriginSummary(origins);
     var originCount =
       payload.originCount ||
-      (Array.isArray(origins) && origins.length ? origins.length : 0);
+      (origins.length ? origins.length : 0);
     var originKey =
       payload.originKey ||
-      ((Array.isArray(origins) && origins[0] && origins[0].originKey) || "");
+      ((origins[0] && origins[0].originKey) || "");
     var transitDays = payload.transitDays;
     var etaDate = payload.estArrivalDate || buildEtaDate(transitDays);
+    var accessorialSelection = normalizeAccessorialSelection(
+      payload.accessorialSelection
+    );
 
     customFields.forEach(function (field) {
       var fieldId = field && (field.id || field.name || field.fieldId);
@@ -258,7 +281,7 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       setField(
         fieldMap,
         ACCESSORIAL_FIELD_MAP[key],
-        asCheckboxValue(payload.accessorials[key])
+        asCheckboxValue(accessorialSelection[key])
       );
     });
 
