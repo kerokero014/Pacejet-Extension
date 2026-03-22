@@ -315,7 +315,6 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
 
     update.shipmethod = payload.shipmethod;
     update.customfields = mergedCustomFields;
-    update.customFields = mergedCustomFields;
 
     return update;
   }

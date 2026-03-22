@@ -87,22 +87,25 @@ define("RDT.Pacejet.Service", [
     return Array.isArray(customFields) ? customFields : [];
   }
 
-  function buildApplyRatePayload(payload) {
-    payload = payload || {};
+  function buildSafeLiveOrderPayload(data) {
+    var payload = data || {};
 
     return {
-      action: "applyRateToCart",
       shipmethod:
         payload.shipmethod === null || payload.shipmethod === undefined
           ? ""
           : String(payload.shipmethod),
-      accessorials: normalizeAccessorialArray(payload.accessorials),
-      accessorialSelection: normalizeAccessorialSelection(
-        payload.accessorialSelection
-      ),
-      customFields: normalizeCustomFields(payload.customFields),
-      customfields: normalizeCustomFields(payload.customFields)
+      customfields: normalizeCustomFields(payload.customfields)
     };
+  }
+
+  function buildApplyRatePayload(payload) {
+    payload = payload || {};
+
+    return buildSafeLiveOrderPayload({
+      shipmethod: payload.shipmethod,
+      customfields: payload.customfields || payload.customFields
+    });
   }
 
   function buildRawRateRequest(payloads, cartSnapshot) {

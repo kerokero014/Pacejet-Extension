@@ -89,6 +89,15 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     return Array.isArray(customFields) ? customFields : [];
   }
 
+  function buildSafeLiveOrderPayload(data) {
+    var payload = data || {};
+
+    return {
+      shipmethod: getShipmethodId(payload.shipmethod),
+      customfields: normalizeCustomFields(payload.customfields)
+    };
+  }
+
   function cloneCustomField(field) {
     return {
       id: field && (field.id || field.name || field.fieldid || field.fieldId),
@@ -278,7 +287,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     if (!order || !order.set || !response) return;
 
     var updates = {};
-    var customFields = response.customFields || response.customfields;
+    var customFields = response.customfields || response.customFields;
 
     if (response.shipmethod) {
       updates.shipmethod = response.shipmethod;
@@ -289,7 +298,6 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     }
 
     if (Array.isArray(customFields)) {
-      updates.customFields = customFields;
       updates.customfields = customFields;
     }
 
@@ -320,21 +328,21 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       })
     );
 
-    logSummarySnapshot(order, "before-liveorder-save", {
-      servicePayload: {
-        shipmethod: getShipmethodId(payload && payload.shipCode),
-        accessorials: [],
-        customFields: customFields
-      }
+    var liveOrderPayload = buildSafeLiveOrderPayload({
+      shipmethod: payload && payload.shipCode,
+      customfields: customFields
     });
 
+    logSummarySnapshot(order, "before-liveorder-save", {
+      servicePayload: liveOrderPayload
+    });
+    console.log(
+      "[Pacejet] LiveOrder payload",
+      JSON.stringify(liveOrderPayload, null, 2)
+    );
+
     return PacejetService
-      .applyRateToCart({
-        shipmethod: getShipmethodId(payload && payload.shipCode),
-        accessorials: normalizeAccessorialArray(payload && payload.accessorials),
-        accessorialSelection: normalizedAccessorialSelection,
-        customFields: customFields
-      })
+      .applyRateToCart(liveOrderPayload)
       .then(function (resp) {
         applyServiceResponseToOrder(order, resp || {});
 
@@ -591,10 +599,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       })
       .fail(function (err) {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
-        console.error(
-          "[Pacejet] LiveOrder save failed",
-          err && err.responseText ? err.responseText : err
-        );
+        console.error("[Pacejet] LiveOrder error", err && err.responseText ? err.responseText : err);
       })
       .always(function () {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;

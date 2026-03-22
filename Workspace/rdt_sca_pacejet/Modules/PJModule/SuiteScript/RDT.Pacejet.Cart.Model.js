@@ -75,7 +75,6 @@ define(
           ) || payload.shipmethod,
         summary: normalizedSummary,
         totals: normalizedSummary,
-        customFields: customFields,
         customfields: customFields
       };
     }
