@@ -14,6 +14,13 @@ define("RDT.Pacejet.Pacejet.Model", [
     return baseUrl + separator + "t=" + Date.now();
   }
 
+  function buildRawRateRequest(payload) {
+    var firstPayload =
+      payload && payload.payload ? payload.payload : payload || {};
+
+    return jQuery.extend(true, {}, firstPayload);
+  }
+
   return Backbone.Model.extend({
     url: function () {
       return getRatesUrl();
@@ -27,14 +34,7 @@ define("RDT.Pacejet.Pacejet.Model", [
           type: "POST",
           contentType: "application/json",
           dataType: "json",
-          data: JSON.stringify({
-            payloads: [
-              {
-                mode: (payload && payload.mode) || "Single",
-                payload: payload || {}
-              }
-            ]
-          })
+          data: JSON.stringify(buildRawRateRequest(payload))
         })
         .then(function (resp) {
           var first =

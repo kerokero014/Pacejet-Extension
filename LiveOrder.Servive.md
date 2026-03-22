@@ -1,4 +1,436 @@
 {
+    "addresses": [],
+    "shipmethods": [
+        {
+            "internalid": "2",
+            "name": "2 Day",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "7764",
+            "name": "AAACooper Guaranteed",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "365",
+            "name": "AAACooper StandardLTL",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1330",
+            "name": "Estes Guaranteed LTL Standard Transit: 10AM",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1332",
+            "name": "Estes Guaranteed LTL Standard Transit: 12PM",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1333",
+            "name": "Estes Guaranteed LTL Standard Transit: 5PM",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1334",
+            "name": "Estes Guaranteed Volume and Truckload Standard",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1335",
+            "name": "Estes LTL Standard Transit",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1336",
+            "name": "Estes Volume and Truckload Basic",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1338",
+            "name": "FedEx Freight Economy",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1339",
+            "name": "FedEx Freight Priority",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1340",
+            "name": "FedEx Ground",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "3",
+            "name": "FedEx Next Day",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1345",
+            "name": "FedEx Priority Overnight",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1346",
+            "name": "FedEx Standard Overnight",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "4",
+            "name": "Ground",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "4252",
+            "name": "MME Standard",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "4253",
+            "name": "NorthPark - Freight to Be Determined",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1347",
+            "name": "ODFL Guaranteed",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1348",
+            "name": "ODFL Standard",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "4254",
+            "name": "Other Special Considerations",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1349",
+            "name": "Other Standard",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1350",
+            "name": "RLCarriers GSAM",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1352",
+            "name": "RLCarriers GSDS",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1351",
+            "name": "RLCarriers GSHW",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1353",
+            "name": "RLCarriers STD",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "4257",
+            "name": "Saia Guarantee 12 PM",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "4258",
+            "name": "Saia Guarantee 2 PM",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "4259",
+            "name": "Saia Guarantee 5 PM",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "4260",
+            "name": "Saia Standard Service",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1354",
+            "name": "UPS 2nd Day Air",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1355",
+            "name": "UPS 2nd Day Air A.M.",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1356",
+            "name": "UPS 3 Day Select",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1357",
+            "name": "UPS First Class Mail",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1358",
+            "name": "UPS Ground",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1359",
+            "name": "UPS Next Day Air",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1360",
+            "name": "UPS Next Day Air Saver",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1361",
+            "name": "UPS Next Day Air® Early A.M.",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1362",
+            "name": "UPS Standard",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "4256",
+            "name": "Use Customer Account - Provide in Notes",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "4255",
+            "name": "WillCall - Fee to Be Determined",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1368",
+            "name": "XPO GUARANTEED",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1369",
+            "name": "XPO SPOT_QUOTE",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        },
+        {
+            "internalid": "1370",
+            "name": "XPO STANDARD",
+            "shipcarrier": "nonups",
+            "rate": 0,
+            "rate_formatted": "Free!"
+        }
+    ],
+    "lines": [
+        {
+            "item": {
+                "internalid": 6877,
+                "type": "Kit"
+            },
+            "quantity": 1,
+            "internalid": "item6877set399",
+            "options": [],
+            "location": "",
+            "fulfillmentChoice": "ship",
+            "freeGift": false
+        }
+    ],
+    "paymentmethods": [
+        {
+            "type": "creditcard",
+            "primary": true,
+            "creditcard": {
+                "internalid": "5928",
+                "ccnumber": "************1111",
+                "ccname": "TEst User",
+                "ccexpiredate": "03/2030",
+                "ccsecuritycode": null,
+                "expmonth": "03",
+                "expyear": "2030",
+                "paymentmethod": {
+                    "internalid": "4",
+                    "name": "Master Card",
+                    "creditcard": true,
+                    "ispaypal": false,
+                    "isexternal": false,
+                    "key": "4,1,1555641112",
+                    "iscardholderauthenticationsupported": "F"
+                }
+            }
+        }
+    ],
+    "internalid": "cart",
+    "confirmation": {
+        "addresses": [],
+        "shipmethods": [],
+        "lines": [],
+        "paymentmethods": []
+    },
+    "multishipmethods": [],
+    "lines_sort": [
+        "item6877set399"
+    ],
+    "latest_addition": null,
+    "promocodes": [],
+    "ismultishipto": false,
+    "shipmethod": "1358",
+    "billaddress": "-------null",
+    "shipaddress": "122388",
+    "isPaypalComplete": false,
+    "touchpoints": {
+        "logout": "/scs/logOut.ssp?logoff=T&ckabandon=T",
+        "customercenter": "https://buy.curecrete.com/scs/my_account.ssp",
+        "serversync": "https://buy.curecrete.com/app/site/backend/syncidentity.nl?c=5464891&n=2",
+        "viewcart": "/scs/goToCart.ssp",
+        "login": "/scs/checkout.ssp?is=login&login=T",
+        "welcome": "/s.nl",
+        "checkout": "/scs/checkout.ssp?is=checkout",
+        "continueshopping": "/",
+        "home": "https://buy.curecrete.com",
+        "register": "/scs/checkout.ssp?is=register&login=T&reset=T&newcust=T"
+    },
+    "agreetermcondition": false,
+    "summary": {
+        "discounttotal_formatted": "$0.00",
+        "taxonshipping_formatted": "$0.00",
+        "taxondiscount_formatted": "$0.00",
+        "itemcount": 1,
+        "taxonhandling_formatted": "$0.00",
+        "total": 210.2,
+        "tax2total": 0,
+        "discountedsubtotal": 191.52,
+        "taxtotal": 18.68,
+        "discounttotal": 0,
+        "discountedsubtotal_formatted": "$191.52",
+        "taxondiscount": 0,
+        "handlingcost_formatted": "$0.00",
+        "taxonshipping": 0,
+        "taxtotal_formatted": "$18.68",
+        "totalcombinedtaxes_formatted": "$18.68",
+        "handlingcost": 0,
+        "totalcombinedtaxes": 18.68,
+        "giftcertapplied_formatted": "$0.00",
+        "shippingcost_formatted": "$0.00",
+        "discountrate": 0,
+        "taxonhandling": 0,
+        "tax2total_formatted": "$0.00",
+        "discountrate_formatted": "$0.00",
+        "estimatedshipping": 0,
+        "subtotal": 191.52,
+        "shippingcost": 0,
+        "estimatedshipping_formatted": "$0.00",
+        "total_formatted": "$210.20",
+        "giftcertapplied": 0,
+        "subtotal_formatted": "$191.52"
+    },
+    "options": {
+        "custbody_applied_credit": "",
+        "custbody_forklift": "F",
+        "custbody_residential": "F",
+        "custbody_jobsite": "F",
+        "custbody_selfstorage": "F",
+        "custbody_appointmenttruck": "F",
+        "custbody_callpriortruck": "F",
+        "custbody_liftgatetruck": "F",
+        "custbody_tt_pj_selected_shipmethod": "",
+        "custbody_eso_pallet_jack_pacejet": "F",
+        "custbody_curecrete_delivconf": "F",
+        "custbody_tt_shipping_location": "",
+        "custbody_tt_leadtimedays": ""
+    },
+    "purchasenumber": "",
+    "data-root-component-id": ""
+}
+{
     "lines": [
         {
             "internalid": "item6877set399",
@@ -472,28 +904,45 @@
             "rate_formatted": "Free!"
         }
     ],
-    "shipmethod": "1340",
+    "shipmethod": "1358",
     "addresses": [
         {
-            "zip": "59803",
+            "zip": "60603-6191",
             "country": "US",
             "addr2": "",
-            "addr1": "6903 Shaver Dr",
-            "city": "Missoula",
+            "addr1": "122 S Michigan Ave",
+            "city": "Chicago",
             "addr3": "",
             "isvalid": "T",
-            "internalid": "122280",
-            "phone": "5555555555",
-            "defaultbilling": "T",
+            "internalid": "122388",
+            "phone": "555-555-5555",
+            "defaultbilling": "F",
             "defaultshipping": "T",
             "isresidential": "F",
-            "state": "MT",
+            "state": "IL",
+            "fullname": "TestingCompany LLC",
+            "company": null
+        },
+        {
+            "zip": "90041",
+            "country": "US",
+            "addr2": "",
+            "addr1": "2000 Ridgeview Ave",
+            "city": "Eagle Rock",
+            "addr3": "",
+            "isvalid": "T",
+            "internalid": "122282",
+            "phone": "555-555-5555",
+            "defaultbilling": "T",
+            "defaultshipping": "F",
+            "isresidential": "F",
+            "state": "CA",
             "fullname": "TestingCompany LLC",
             "company": null
         }
     ],
-    "billaddress": "122280",
-    "shipaddress": "122280",
+    "billaddress": "122282",
+    "shipaddress": "122388",
     "paymentmethods": [
         {
             "type": "creditcard",
@@ -502,9 +951,9 @@
                 "internalid": "5928",
                 "ccnumber": "************1111",
                 "ccname": "TEst User",
-                "ccexpiredate": "3/2030",
+                "ccexpiredate": "03/2030",
                 "ccsecuritycode": null,
-                "expmonth": "3",
+                "expmonth": "03",
                 "expyear": "2030",
                 "paymentmethod": {
                     "internalid": "4",
@@ -538,19 +987,19 @@
         "taxondiscount_formatted": "$0.00",
         "itemcount": 1,
         "taxonhandling_formatted": "$0.00",
-        "total": 191.52,
+        "total": 211.15,
         "tax2total": 0,
         "discountedsubtotal": 191.52,
-        "taxtotal": 0,
+        "taxtotal": 19.63,
         "discounttotal": 0,
         "discountedsubtotal_formatted": "$191.52",
         "taxondiscount": 0,
         "handlingcost_formatted": "$0.00",
         "taxonshipping": 0,
-        "taxtotal_formatted": "$0.00",
-        "totalcombinedtaxes_formatted": "$0.00",
+        "taxtotal_formatted": "$19.63",
+        "totalcombinedtaxes_formatted": "$19.63",
         "handlingcost": 0,
-        "totalcombinedtaxes": 0,
+        "totalcombinedtaxes": 19.63,
         "giftcertapplied_formatted": "$0.00",
         "shippingcost_formatted": "$0.00",
         "discountrate": 0,
@@ -561,7 +1010,7 @@
         "subtotal": 191.52,
         "shippingcost": 0,
         "estimatedshipping_formatted": "$0.00",
-        "total_formatted": "$191.52",
+        "total_formatted": "$211.15",
         "giftcertapplied": 0,
         "subtotal_formatted": "$191.52"
     },

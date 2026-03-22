@@ -73,6 +73,16 @@ define("RDT.Pacejet.Service", [
     });
   }
 
+  function buildRawRateRequest(payloads, cartSnapshot) {
+    var firstEntry =
+      Array.isArray(payloads) && payloads.length ? payloads[0] || {} : {};
+    var rawPayload = jQuery.extend(true, {}, firstEntry.payload || firstEntry);
+
+    rawPayload.cartSnapshot = cartSnapshot;
+
+    return rawPayload;
+  }
+
   function normalizeModeResponses(serviceResponse, payloads) {
     if (
       serviceResponse &&
@@ -1373,13 +1383,11 @@ define("RDT.Pacejet.Service", [
       return { mode: "Single", payload: p };
     });
 
-    payloads.forEach(function (entry) {
-      entry.payload.cartSnapshot = cartSnapshot;
-    });
+    var outboundPayload = buildRawRateRequest(payloads, cartSnapshot);
 
-    return requestRates({
-      payloads: payloads
-    }).then(function (serviceResponse) {
+    console.log("[Pacejet] Outbound rate payload:", outboundPayload);
+
+    return requestRates(outboundPayload).then(function (serviceResponse) {
       if (state.cache._activeRequestId !== thisRequestId) {
         console.warn("[Pacejet] Ignoring stale rate response.");
         return state.cache.lastRates || [];
