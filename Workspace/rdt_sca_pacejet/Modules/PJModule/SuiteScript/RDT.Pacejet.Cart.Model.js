@@ -47,6 +47,10 @@ define("RDT.Pacejet.Cart.Model", [
     throw new Error("LiveOrder.update is unavailable");
   }
 
+  function deepCloneOrder(order) {
+    return JSON.parse(JSON.stringify(order || {}));
+  }
+
   function applyCustomFields(liveOrder, customFieldsInput) {
     if (typeof liveOrder.setTransactionBodyField !== "function") {
       return;
@@ -90,6 +94,8 @@ define("RDT.Pacejet.Cart.Model", [
   function applyRateToCart(request) {
     var payload = CartHelper.normalizePayload(sanitizeRequest(request));
     var liveOrder = getLiveOrderModel();
+    var currentOrder;
+    var updatePayload;
     var updatedOrder;
     var normalizedSummary;
     var customFields;
@@ -101,15 +107,16 @@ define("RDT.Pacejet.Cart.Model", [
     payload.customFields = payload.customFields || [];
     amount = Number(payload.pacejetAmount) || 0;
 
-    updateLiveOrder(liveOrder, {
-      shipmethod: payload.shipmethod
-    });
+    currentOrder = getCurrentOrder(liveOrder);
+    updatePayload = deepCloneOrder(currentOrder);
+    updatePayload.summary =
+      updatePayload.summary && typeof updatePayload.summary === "object"
+        ? updatePayload.summary
+        : {};
+    updatePayload.shipmethod = payload.shipmethod;
+    updatePayload.summary.shippingcost = amount;
 
-    updateLiveOrder(liveOrder, {
-      summary: {
-        shippingcost: amount
-      }
-    });
+    updateLiveOrder(liveOrder, updatePayload);
 
     applyCustomFields(liveOrder, payload.customFields);
 
