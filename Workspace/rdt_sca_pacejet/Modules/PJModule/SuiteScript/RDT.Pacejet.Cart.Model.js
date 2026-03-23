@@ -35,6 +35,60 @@ define("RDT.Pacejet.Cart.Model", [
     return order || {};
   }
 
+  function applyShippingMethod(liveOrder, shipmethod) {
+    if (!liveOrder) {
+      throw new Error("LiveOrder is unavailable");
+    }
+
+    if (typeof liveOrder.set === "function") {
+      liveOrder.set("shipmethod", shipmethod);
+      return;
+    }
+
+    if (typeof liveOrder.setFieldValue === "function") {
+      liveOrder.setFieldValue("shipmethod", shipmethod);
+      return;
+    }
+
+    throw new Error("Unable to set shipmethod on LiveOrder");
+  }
+
+  function applyCustomFields(liveOrder, customFieldsInput) {
+    if (typeof liveOrder.setTransactionBodyField !== "function") {
+      return;
+    }
+
+    customFieldsInput.forEach(function (field) {
+      if (!field || !field.id) {
+        return;
+      }
+
+      liveOrder.setTransactionBodyField({
+        fieldId: field.id,
+        type: "string",
+        value: String(field.value)
+      });
+    });
+  }
+
+  function saveLiveOrder(liveOrder) {
+    if (!liveOrder || typeof liveOrder.save !== "function") {
+      throw new Error("LiveOrder.save is unavailable");
+    }
+
+    liveOrder.save();
+  }
+
+  function refreshOrderState(liveOrder) {
+    var updatedOrder = getCurrentOrder(liveOrder);
+
+    if (!updatedOrder || !updatedOrder.summary) {
+      updatedOrder = callModelMethod(LiveOrderModel, "get") || updatedOrder;
+    }
+
+    return updatedOrder || {};
+  }
+
   function sanitizeRequest(request) {
     var data = request && typeof request === "object" ? request : {};
 
@@ -52,56 +106,34 @@ define("RDT.Pacejet.Cart.Model", [
     var liveOrder = getLiveOrderModel();
     var updatedOrder;
     var normalizedSummary;
+    var customFieldsInput;
     var customFields;
 
     CartHelper.validatePayload(payload);
 
     var shipmethod = CartHelper.normalizeShipmethod(payload.shipmethod);
+    customFieldsInput = payload.customFields || payload.customfields || [];
 
     if (shipmethod) {
-      if (typeof liveOrder.setShippingMethod === "function") {
-        liveOrder.setShippingMethod(shipmethod);
-      } else {
-        throw new Error("LiveOrder.setShippingMethod is unavailable");
-      }
+      applyShippingMethod(liveOrder, shipmethod);
     }
 
-    var customFieldsInput = payload.customFields || payload.customfields || [];
-
-    customFieldsInput.forEach(function (field) {
-      if (!field || !field.id) return;
-
-      if (typeof liveOrder.setTransactionBodyField === "function") {
-        liveOrder.setTransactionBodyField({
-          fieldId: field.id,
-          type: "string",
-          value: String(field.value)
-        });
-      }
-    });
-
-    updatedOrder = getCurrentOrder(liveOrder);
-
-    // Optional nudge for recalculation
-    if (liveOrder.getSummary) {
-      liveOrder.getSummary();
-    }
-
-    if (!updatedOrder || !updatedOrder.summary) {
-      updatedOrder = getCurrentOrder(liveOrder);
-    }
+    applyCustomFields(liveOrder, customFieldsInput);
+    saveLiveOrder(liveOrder);
+    updatedOrder = refreshOrderState(liveOrder);
 
     normalizedSummary = CartHelper.normalizeSummary(updatedOrder);
-    customFields = CartHelper.getCustomFieldList(updatedOrder);
+    customFields = CartHelper.mergeCustomFields(
+      CartHelper.getCustomFieldList(updatedOrder),
+      {
+        customFields: customFieldsInput
+      }
+    );
 
     return {
       ok: true,
-      shipmethod:
-        CartHelper.normalizeShipmethod(
-          updatedOrder && updatedOrder.shipmethod
-        ) || payload.shipmethod,
+      shipmethod: shipmethod,
       summary: normalizedSummary,
-      totals: normalizedSummary,
       customfields: customFields
     };
   }

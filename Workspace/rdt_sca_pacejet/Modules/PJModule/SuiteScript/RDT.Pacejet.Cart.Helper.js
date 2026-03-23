@@ -37,7 +37,7 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
   function cloneField(field) {
     return {
       id: field && (field.id || field.name || field.fieldid || field.fieldId),
-      value: field ? field.value : ""
+      value: asString(field ? field.value : "")
     };
   }
 
@@ -87,7 +87,29 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
   }
 
   function normalizeCustomFields(customFields) {
-    return Array.isArray(customFields) ? customFields : [];
+    return Array.isArray(customFields)
+      ? customFields
+          .map(function (field) {
+            if (!field) {
+              return null;
+            }
+
+            var fieldId =
+              field.id || field.name || field.fieldid || field.fieldId;
+
+            if (!fieldId) {
+              return null;
+            }
+
+            return {
+              id: asString(fieldId),
+              value: asString(field.value)
+            };
+          })
+          .filter(function (field) {
+            return !!field;
+          })
+      : [];
   }
 
   function normalizePayload(payload) {
@@ -202,19 +224,33 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
 
   function normalizeSummary(order) {
     var summary = (order && order.summary) || {};
+    var shippingCost =
+      summary.shippingcost !== undefined
+        ? summary.shippingcost
+        : summary.shippingCost !== undefined
+          ? summary.shippingCost
+          : summary.estimatedshipping !== undefined
+            ? summary.estimatedshipping
+            : summary.handlingcost !== undefined
+              ? summary.handlingcost
+              : summary.shipping !== undefined
+                ? summary.shipping
+                : 0;
+    var taxTotal =
+      summary.taxtotal !== undefined
+        ? summary.taxtotal
+        : summary.taxTotal !== undefined
+          ? summary.taxTotal
+          : summary.tax !== undefined
+            ? summary.tax
+            : summary.taxamount !== undefined
+              ? summary.taxamount
+              : summary.taxAmount !== undefined
+                ? summary.taxAmount
+                : 0;
     var subtotal = asNumber(summary.subtotal, 0);
-    var shipping = asNumber(
-      summary.shippingcost || summary.shippingCost || summary.estimatedshipping,
-      0
-    );
-    var tax = asNumber(
-      summary.taxtotal ||
-        summary.taxTotal ||
-        summary.tax ||
-        summary.taxamount ||
-        summary.taxAmount,
-      0
-    );
+    var shipping = asNumber(shippingCost, 0);
+    var tax = asNumber(taxTotal, 0);
     var total = asNumber(
       summary.total || summary.totalAmount || summary.totalamount,
       subtotal + shipping + tax
