@@ -53,6 +53,28 @@ define("RDT.Pacejet.Cart.Model", [
     throw new Error("Unable to set shipmethod on LiveOrder");
   }
 
+  function applyShippingCost(liveOrder, updatePayload, amount) {
+    if (!liveOrder) {
+      throw new Error("LiveOrder is unavailable");
+    }
+
+    if (typeof liveOrder.set === "function") {
+      liveOrder.set("shippingcost", amount);
+      return;
+    }
+
+    if (typeof liveOrder.setFieldValue === "function") {
+      liveOrder.setFieldValue("shippingcost", amount);
+      return;
+    }
+
+    updatePayload.summary =
+      updatePayload.summary && typeof updatePayload.summary === "object"
+        ? updatePayload.summary
+        : {};
+    updatePayload.summary.shippingcost = amount;
+  }
+
   function applyCustomFields(liveOrder, customFieldsInput) {
     if (typeof liveOrder.setTransactionBodyField !== "function") {
       return;
@@ -104,35 +126,59 @@ define("RDT.Pacejet.Cart.Model", [
   function applyRateToCart(request) {
     var payload = CartHelper.normalizePayload(sanitizeRequest(request));
     var liveOrder = getLiveOrderModel();
+    var currentOrder;
+    var updatePayload;
     var updatedOrder;
     var normalizedSummary;
-    var customFieldsInput;
     var customFields;
+    var amount;
 
     CartHelper.validatePayload(payload);
 
-    var shipmethod = CartHelper.normalizeShipmethod(payload.shipmethod);
-    customFieldsInput = payload.customFields || payload.customfields || [];
+    payload.shipmethod = CartHelper.normalizeShipmethod(payload.shipmethod);
+    payload.customFields = payload.customFields || [];
+    amount = Number(payload.pacejetAmount) || 0;
 
-    if (shipmethod) {
-      applyShippingMethod(liveOrder, shipmethod);
+    currentOrder = getCurrentOrder(liveOrder);
+    updatePayload = CartHelper.buildOrderUpdatePayload(currentOrder, payload);
+
+    if (
+      typeof liveOrder.set !== "function" &&
+      typeof liveOrder.setFieldValue !== "function"
+    ) {
+      applyShippingCost(liveOrder, updatePayload, amount);
     }
 
-    applyCustomFields(liveOrder, customFieldsInput);
-    saveLiveOrder(liveOrder);
-    updatedOrder = refreshOrderState(liveOrder);
+    if (typeof liveOrder.update === "function") {
+      liveOrder.update(updatePayload);
+    } else if (typeof LiveOrderModel.update === "function") {
+      LiveOrderModel.update(updatePayload);
+    } else {
+      throw new Error("LiveOrder.update is unavailable");
+    }
 
+    if (
+      typeof liveOrder.set === "function" ||
+      typeof liveOrder.setFieldValue === "function"
+    ) {
+      applyShippingMethod(liveOrder, payload.shipmethod);
+    }
+    applyCustomFields(liveOrder, payload.customFields);
+    applyShippingCost(liveOrder, updatePayload, amount);
+    saveLiveOrder(liveOrder);
+
+    updatedOrder = refreshOrderState(liveOrder);
     normalizedSummary = CartHelper.normalizeSummary(updatedOrder);
     customFields = CartHelper.mergeCustomFields(
       CartHelper.getCustomFieldList(updatedOrder),
       {
-        customFields: customFieldsInput
+        customFields: payload.customFields
       }
     );
 
     return {
       ok: true,
-      shipmethod: shipmethod,
+      shipmethod: payload.shipmethod,
       summary: normalizedSummary,
       customfields: customFields
     };

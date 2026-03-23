@@ -112,11 +112,31 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       : [];
   }
 
+  function getCustomFieldValue(customFields, fieldId) {
+    var match = (Array.isArray(customFields) ? customFields : []).filter(function (
+      field
+    ) {
+      return field && field.id === fieldId;
+    })[0];
+
+    return match ? match.value : "";
+  }
+
   function normalizePayload(payload) {
     var raw = payload || {};
+    var customFields = normalizeCustomFields(raw.customFields || raw.customfields);
+
     return {
       shipmethod: asString(raw.shipmethod || raw.shipMethod).trim(),
-      customFields: normalizeCustomFields(raw.customFields || raw.customfields),
+      customFields: customFields,
+      pacejetAmount: asNumber(
+        raw.pacejetAmount !== undefined && raw.pacejetAmount !== null
+          ? raw.pacejetAmount
+          : raw.cost !== undefined && raw.cost !== null
+            ? raw.cost
+            : getCustomFieldValue(customFields, "custbody_rdt_pacejet_amount"),
+        0
+      ),
       raw: raw
     };
   }
@@ -215,6 +235,13 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     update.shipmethod = payload.shipmethod;
     update.customfields = mergedCustomFields;
     update.customFields = mergedCustomFields;
+
+    if (payload.pacejetAmount !== undefined && payload.pacejetAmount !== null) {
+      update.summary = update.summary && typeof update.summary === "object"
+        ? cloneValue(update.summary)
+        : {};
+      update.summary.shippingcost = asNumber(payload.pacejetAmount, 0);
+    }
 
     normalizeCollectionFields(update, baseOrder);
     preserveScalarFields(update, baseOrder);
