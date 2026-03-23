@@ -11,9 +11,20 @@ define(
       var request =
         (context && (context.request || context.req)) || null;
       var data = {};
+      var raw;
 
       if (request && typeof request.getBody === "function") {
-        data = request.getBody() || {};
+        raw = request.getBody();
+
+        if (typeof raw === "string") {
+          try {
+            data = JSON.parse(raw);
+          } catch (e) {
+            data = {};
+          }
+        } else {
+          data = raw || {};
+        }
       } else if (context && context.data) {
         data = context.data || {};
       }
@@ -30,6 +41,10 @@ define(
           : data.shipMethod !== null && data.shipMethod !== undefined
             ? String(data.shipMethod)
             : "";
+
+      if (typeof log !== "undefined" && log && typeof log.debug === "function") {
+        log.debug("Parsed request body", JSON.stringify(data));
+      }
 
       return data;
     }

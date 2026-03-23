@@ -1,6 +1,26 @@
 define("RDT.Pacejet.Cart.Helper", [], function () {
   "use strict";
 
+  var ARRAY_FIELDS = [
+    "lines",
+    "addresses",
+    "shipmethods",
+    "paymentmethods",
+    "promocodes",
+    "multishipmethods",
+    "lines_sort"
+  ];
+
+  var PRESERVED_SCALAR_FIELDS = [
+    "shipaddress",
+    "billaddress",
+    "summary",
+    "options",
+    "ismultishipto",
+    "touchpoints",
+    "purchasenumber"
+  ];
+
   function asNumber(value, fallback) {
     var num = Number(value);
     return isFinite(num) ? num : fallback || 0;
@@ -19,6 +39,24 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       id: field && (field.id || field.name || field.fieldid || field.fieldId),
       value: field ? field.value : ""
     };
+  }
+
+  function cloneValue(value) {
+    if (Array.isArray(value)) {
+      return value.slice();
+    }
+
+    if (value && typeof value === "object") {
+      var clone = {};
+
+      Object.keys(value).forEach(function (key) {
+        clone[key] = value[key];
+      });
+
+      return clone;
+    }
+
+    return value;
   }
 
   function getCustomFieldList(order) {
@@ -115,13 +153,49 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     return asString(shipmethod).trim();
   }
 
+  function normalizeArrayField(value) {
+    return Array.isArray(value) ? value.slice() : [];
+  }
+
+  function cloneOrder(order) {
+    var source = order && typeof order === "object" ? order : {};
+    var clone = {};
+
+    Object.keys(source).forEach(function (key) {
+      clone[key] = cloneValue(source[key]);
+    });
+
+    return clone;
+  }
+
+  function normalizeCollectionFields(update, order) {
+    ARRAY_FIELDS.forEach(function (fieldName) {
+      update[fieldName] = normalizeArrayField(
+        update[fieldName] !== undefined ? update[fieldName] : order[fieldName]
+      );
+    });
+  }
+
+  function preserveScalarFields(update, order) {
+    PRESERVED_SCALAR_FIELDS.forEach(function (fieldName) {
+      if (update[fieldName] === undefined && order[fieldName] !== undefined) {
+        update[fieldName] = cloneValue(order[fieldName]);
+      }
+    });
+  }
+
   function buildOrderUpdatePayload(order, payload) {
-    var update = {};
+    var baseOrder = order && typeof order === "object" ? order : {};
+    var update = cloneOrder(baseOrder);
     var existingFields = getCustomFieldList(order);
     var mergedCustomFields = mergeCustomFields(existingFields, payload);
 
     update.shipmethod = payload.shipmethod;
     update.customfields = mergedCustomFields;
+    update.customFields = mergedCustomFields;
+
+    normalizeCollectionFields(update, baseOrder);
+    preserveScalarFields(update, baseOrder);
 
     return update;
   }
@@ -155,6 +229,7 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
   }
 
   return {
+    ARRAY_FIELDS: ARRAY_FIELDS,
     getCustomFieldList: getCustomFieldList,
     buildOrderUpdatePayload: buildOrderUpdatePayload,
     mergeCustomFields: mergeCustomFields,
