@@ -472,7 +472,7 @@
             "rate_formatted": "Free!"
         }
     ],
-    "shipmethod": "1358",
+    "shipmethod": "1334",
     "addresses": [
         {
             "zip": "60603-6191",

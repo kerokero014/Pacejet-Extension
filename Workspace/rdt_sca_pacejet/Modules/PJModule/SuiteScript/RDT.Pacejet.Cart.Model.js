@@ -53,28 +53,6 @@ define("RDT.Pacejet.Cart.Model", [
     throw new Error("Unable to set shipmethod on LiveOrder");
   }
 
-  function applyShippingCost(liveOrder, updatePayload, amount) {
-    if (!liveOrder) {
-      throw new Error("LiveOrder is unavailable");
-    }
-
-    if (typeof liveOrder.set === "function") {
-      liveOrder.set("shippingcost", amount);
-      return;
-    }
-
-    if (typeof liveOrder.setFieldValue === "function") {
-      liveOrder.setFieldValue("shippingcost", amount);
-      return;
-    }
-
-    updatePayload.summary =
-      updatePayload.summary && typeof updatePayload.summary === "object"
-        ? updatePayload.summary
-        : {};
-    updatePayload.summary.shippingcost = amount;
-  }
-
   function applyCustomFields(liveOrder, customFieldsInput) {
     if (typeof liveOrder.setTransactionBodyField !== "function") {
       return;
@@ -91,14 +69,6 @@ define("RDT.Pacejet.Cart.Model", [
         value: String(field.value)
       });
     });
-  }
-
-  function saveLiveOrder(liveOrder) {
-    if (!liveOrder || typeof liveOrder.save !== "function") {
-      throw new Error("LiveOrder.save is unavailable");
-    }
-
-    liveOrder.save();
   }
 
   function refreshOrderState(liveOrder) {
@@ -141,13 +111,11 @@ define("RDT.Pacejet.Cart.Model", [
 
     currentOrder = getCurrentOrder(liveOrder);
     updatePayload = CartHelper.buildOrderUpdatePayload(currentOrder, payload);
-
-    if (
-      typeof liveOrder.set !== "function" &&
-      typeof liveOrder.setFieldValue !== "function"
-    ) {
-      applyShippingCost(liveOrder, updatePayload, amount);
-    }
+    updatePayload.summary =
+      updatePayload.summary && typeof updatePayload.summary === "object"
+        ? updatePayload.summary
+        : {};
+    updatePayload.summary.shippingcost = amount;
 
     if (typeof liveOrder.update === "function") {
       liveOrder.update(updatePayload);
@@ -164,8 +132,6 @@ define("RDT.Pacejet.Cart.Model", [
       applyShippingMethod(liveOrder, payload.shipmethod);
     }
     applyCustomFields(liveOrder, payload.customFields);
-    applyShippingCost(liveOrder, updatePayload, amount);
-    saveLiveOrder(liveOrder);
 
     updatedOrder = refreshOrderState(liveOrder);
     normalizedSummary = CartHelper.normalizeSummary(updatedOrder);
