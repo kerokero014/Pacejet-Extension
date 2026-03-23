@@ -1,19 +1,6 @@
 define("RDT.Pacejet.Cart.Helper", [], function () {
   "use strict";
 
-  var ACCESSORIAL_FIELD_MAP = {
-    driver_call: "custbody_callpriortruck",
-    lift_gate: "custbody_pj_ssliftgate",
-    job_site: "custbody_jobsite",
-    residential: "custbody_residential",
-    schedule_appt: "custbody_appointmenttruck",
-    self_storage: "custbody_selfstorage",
-    school: "custbody_school_delivery",
-    inside_delivery: "custbody_inside_delivery",
-    dangerous_goods: "custbody_dangerous_goods",
-    hazmat_parcel: "custbody_access_hazmat_parcel"
-  };
-
   function asNumber(value, fallback) {
     var num = Number(value);
     return isFinite(num) ? num : fallback || 0;
@@ -25,34 +12,6 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     }
 
     return String(value);
-  }
-
-  function firstDefined() {
-    var i;
-    var value;
-
-    for (i = 0; i < arguments.length; i++) {
-      value = arguments[i];
-      if (value !== null && value !== undefined && value !== "") {
-        return value;
-      }
-    }
-
-    return "";
-  }
-
-  function asCheckboxValue(value) {
-    if (
-      value === true ||
-      value === "T" ||
-      value === "true" ||
-      value === 1 ||
-      value === "1"
-    ) {
-      return "T";
-    }
-
-    return "F";
   }
 
   function cloneField(field) {
@@ -89,115 +48,14 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     };
   }
 
-  function buildEtaDate(transitDays) {
-    var days = asNumber(transitDays, NaN);
-    if (!isFinite(days) || days <= 0) {
-      return "";
-    }
-
-    var eta = new Date();
-    eta.setDate(eta.getDate() + days);
-
-    return eta.toISOString().split("T")[0];
-  }
-
-  function buildOriginSummary(origins) {
-    if (!Array.isArray(origins) || !origins.length) {
-      return "";
-    }
-
-    return origins
-      .map(function (origin) {
-        var label =
-          origin.city ||
-          origin.zip ||
-          origin.originKey ||
-          origin.LocationCode ||
-          "Origin";
-
-        return label + ": $" + asNumber(origin.cost, 0).toFixed(2);
-      })
-      .join("\n");
-  }
-
-  function truncateQuoteJson(value) {
-    var json = asString(value);
-    return json.length > 3800 ? json.slice(0, 3800) : json;
-  }
-
-  function normalizeDateInput(value) {
-    var raw = asString(value).trim();
-    var date;
-
-    if (!raw) {
-      return "";
-    }
-
-    date = new Date(raw);
-    if (!isFinite(date.getTime())) {
-      return "";
-    }
-
-    return date.toISOString().split("T")[0];
-  }
-
-  function normalizeOrigins(origins) {
-    return Array.isArray(origins) ? origins : [];
-  }
-
-  function normalizeAccessorialArray(accessorials) {
-    return Array.isArray(accessorials) ? accessorials : [];
-  }
-
-  function normalizeAccessorialSelection(accessorials) {
-    return accessorials && typeof accessorials === "object" && !Array.isArray(accessorials)
-      ? accessorials
-      : {};
-  }
-
   function normalizeCustomFields(customFields) {
     return Array.isArray(customFields) ? customFields : [];
   }
 
   function normalizePayload(payload) {
     var raw = payload || {};
-    var accessorialSelection = normalizeAccessorialSelection(
-      raw.accessorialSelection || raw.accessorialMap
-    );
-
-    payload = payload || {};
-
     return {
-      shipmethod: asString(firstDefined(raw.shipmethod, raw.shipMethod)).trim(),
-      pacejetAmount: asNumber(
-        firstDefined(raw.pacejetAmount, raw.pacejet_amount, raw.shipping),
-        0
-      ),
-      carrier: asString(
-        firstDefined(raw.carrier, raw.carrierName, raw.pacejet_carrier_name)
-      ),
-      service: asString(
-        firstDefined(raw.service, raw.serviceName, raw.pacejet_service_name)
-      ),
-      quoteJson: truncateQuoteJson(
-        firstDefined(raw.quoteJson, raw.pacejet_quote_json)
-      ),
-      transitDays: firstDefined(raw.transitDays, raw.pacejet_transit_days),
-      estArrivalDate: normalizeDateInput(
-        firstDefined(raw.estArrivalDate, raw.pacejet_est_arrival_date)
-      ),
-      originKey: asString(
-        firstDefined(raw.originKey, raw.pacejet_origin_key)
-      ),
-      originCount: asNumber(
-        firstDefined(raw.originCount, raw.pacejet_origin_count),
-        0
-      ),
-      originSummary: asString(
-        firstDefined(raw.originSummary, raw.pacejet_origin_summary)
-      ),
-      accessorials: normalizeAccessorialArray(raw.accessorials),
-      accessorialSelection: accessorialSelection,
+      shipmethod: asString(raw.shipmethod || raw.shipMethod).trim(),
       customFields: normalizeCustomFields(raw.customFields || raw.customfields),
       raw: raw
     };
@@ -226,63 +84,12 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
   function mergeCustomFields(existingFields, payload) {
     var fieldMap = getFieldMap(existingFields);
     var customFields = normalizeCustomFields(payload.customFields);
-    var origins = normalizeOrigins(payload.raw && payload.raw.origins);
-    var originSummary = payload.originSummary || buildOriginSummary(origins);
-    var originCount =
-      payload.originCount ||
-      (origins.length ? origins.length : 0);
-    var originKey =
-      payload.originKey ||
-      ((origins[0] && origins[0].originKey) || "");
-    var transitDays = payload.transitDays;
-    var etaDate = payload.estArrivalDate || buildEtaDate(transitDays);
-    var accessorialSelection = normalizeAccessorialSelection(
-      payload.accessorialSelection
-    );
 
     customFields.forEach(function (field) {
       var fieldId = field && (field.id || field.name || field.fieldId);
       if (fieldId) {
         setField(fieldMap, fieldId, field.value);
       }
-    });
-
-    setField(fieldMap, "custbody_rdt_pacejet_amount", payload.pacejetAmount);
-    setField(fieldMap, "custbody_rdt_pj_carrier_name", payload.carrier);
-    setField(fieldMap, "custbody_rdt_pj_service_name", payload.service);
-    setField(
-      fieldMap,
-      "custbody_rdt_pj_accessorial_total",
-      asNumber(payload.raw && payload.raw.accessorialDelta, 0)
-    );
-    setField(fieldMap, "custbody_rdt_pj_quote_json", payload.quoteJson);
-
-    if (transitDays !== "") {
-      setField(fieldMap, "custbody_rdt_pj_transit_days", asNumber(transitDays));
-    }
-
-    if (etaDate) {
-      setField(fieldMap, "custbody_rdt_pj_est_arrival_date", etaDate);
-    }
-
-    if (originCount) {
-      setField(fieldMap, "custbody_rdt_pj_origin_count", originCount);
-    }
-
-    if (originKey) {
-      setField(fieldMap, "custbody_rdt_pj_origin_key", originKey);
-    }
-
-    if (originSummary) {
-      setField(fieldMap, "custbody_rdt_pj_origin_summary", originSummary);
-    }
-
-    Object.keys(ACCESSORIAL_FIELD_MAP).forEach(function (key) {
-      setField(
-        fieldMap,
-        ACCESSORIAL_FIELD_MAP[key],
-        asCheckboxValue(accessorialSelection[key])
-      );
     });
 
     return Object.keys(fieldMap).map(function (fieldId) {

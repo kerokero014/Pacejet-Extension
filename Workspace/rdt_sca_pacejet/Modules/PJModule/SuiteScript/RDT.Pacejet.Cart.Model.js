@@ -45,8 +45,20 @@ define(
       return updated;
     }
 
+    function sanitizeRequest(request) {
+      var data = request && typeof request === "object" ? request : {};
+
+      data.customfields = Array.isArray(data.customfields)
+        ? data.customfields
+        : Array.isArray(data.customFields)
+          ? data.customFields
+          : [];
+
+      return data;
+    }
+
     function applyRateToCart(request) {
-      var payload = CartHelper.normalizePayload(request);
+      var payload = CartHelper.normalizePayload(sanitizeRequest(request));
       var liveOrder = getLiveOrderModel();
       var currentOrder = getCurrentOrder(liveOrder);
       var orderUpdate;
