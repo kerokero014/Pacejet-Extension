@@ -35,22 +35,16 @@ define("RDT.Pacejet.Cart.Model", [
     return order || {};
   }
 
-  function applyShippingMethod(liveOrder, shipmethod) {
-    if (!liveOrder) {
-      throw new Error("LiveOrder is unavailable");
+  function updateLiveOrder(liveOrder, payload) {
+    if (liveOrder && typeof liveOrder.update === "function") {
+      return liveOrder.update(payload);
     }
 
-    if (typeof liveOrder.set === "function") {
-      liveOrder.set("shipmethod", shipmethod);
-      return;
+    if (typeof LiveOrderModel.update === "function") {
+      return LiveOrderModel.update(payload);
     }
 
-    if (typeof liveOrder.setFieldValue === "function") {
-      liveOrder.setFieldValue("shipmethod", shipmethod);
-      return;
-    }
-
-    throw new Error("Unable to set shipmethod on LiveOrder");
+    throw new Error("LiveOrder.update is unavailable");
   }
 
   function applyCustomFields(liveOrder, customFieldsInput) {
@@ -96,8 +90,6 @@ define("RDT.Pacejet.Cart.Model", [
   function applyRateToCart(request) {
     var payload = CartHelper.normalizePayload(sanitizeRequest(request));
     var liveOrder = getLiveOrderModel();
-    var currentOrder;
-    var updatePayload;
     var updatedOrder;
     var normalizedSummary;
     var customFields;
@@ -109,28 +101,16 @@ define("RDT.Pacejet.Cart.Model", [
     payload.customFields = payload.customFields || [];
     amount = Number(payload.pacejetAmount) || 0;
 
-    currentOrder = getCurrentOrder(liveOrder);
-    updatePayload = CartHelper.buildOrderUpdatePayload(currentOrder, payload);
-    updatePayload.summary =
-      updatePayload.summary && typeof updatePayload.summary === "object"
-        ? updatePayload.summary
-        : {};
-    updatePayload.summary.shippingcost = amount;
+    updateLiveOrder(liveOrder, {
+      shipmethod: payload.shipmethod
+    });
 
-    if (typeof liveOrder.update === "function") {
-      liveOrder.update(updatePayload);
-    } else if (typeof LiveOrderModel.update === "function") {
-      LiveOrderModel.update(updatePayload);
-    } else {
-      throw new Error("LiveOrder.update is unavailable");
-    }
+    updateLiveOrder(liveOrder, {
+      summary: {
+        shippingcost: amount
+      }
+    });
 
-    if (
-      typeof liveOrder.set === "function" ||
-      typeof liveOrder.setFieldValue === "function"
-    ) {
-      applyShippingMethod(liveOrder, payload.shipmethod);
-    }
     applyCustomFields(liveOrder, payload.customFields);
 
     updatedOrder = refreshOrderState(liveOrder);
