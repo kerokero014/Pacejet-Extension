@@ -36,19 +36,44 @@ define("RDT.Pacejet.Cart.Model", [
   }
 
   function updateLiveOrder(liveOrder, payload) {
-    if (liveOrder && typeof liveOrder.update === "function") {
-      return liveOrder.update(payload);
+    var order;
+    var updatedOrder;
+
+    if (liveOrder && typeof liveOrder.get === "function") {
+      if (typeof liveOrder.update === "function") {
+        liveOrder.update({
+          shipmethod: null
+        });
+
+        order = liveOrder.get() || {};
+
+        liveOrder.update({
+          shipmethod: payload.shipmethod
+        });
+
+        updatedOrder = liveOrder.get() || order;
+
+        return updatedOrder;
+      }
     }
 
     if (typeof LiveOrderModel.update === "function") {
-      return LiveOrderModel.update(payload);
+      LiveOrderModel.update({
+        shipmethod: null
+      });
+
+      order = callModelMethod(LiveOrderModel, "get") || {};
+
+      LiveOrderModel.update({
+        shipmethod: payload.shipmethod
+      });
+
+      updatedOrder = callModelMethod(LiveOrderModel, "get") || order;
+
+      return updatedOrder;
     }
 
     throw new Error("LiveOrder.update is unavailable");
-  }
-
-  function deepCloneOrder(order) {
-    return JSON.parse(JSON.stringify(order || {}));
   }
 
   function applyCustomFields(liveOrder, customFieldsInput) {
@@ -94,9 +119,8 @@ define("RDT.Pacejet.Cart.Model", [
   function applyRateToCart(request) {
     var payload = CartHelper.normalizePayload(sanitizeRequest(request));
     var liveOrder = getLiveOrderModel();
-    var currentOrder;
-    var updatePayload;
     var updatedOrder;
+    var summaryOverrides;
     var normalizedSummary;
     var customFields;
     var amount;
@@ -107,21 +131,29 @@ define("RDT.Pacejet.Cart.Model", [
     payload.customFields = payload.customFields || [];
     amount = Number(payload.pacejetAmount) || 0;
 
-    currentOrder = getCurrentOrder(liveOrder);
-    updatePayload = deepCloneOrder(currentOrder);
-    updatePayload.summary =
-      updatePayload.summary && typeof updatePayload.summary === "object"
-        ? updatePayload.summary
-        : {};
-    updatePayload.shipmethod = payload.shipmethod;
-    updatePayload.summary.shippingcost = amount;
+    updatedOrder = updateLiveOrder(liveOrder, {
+      shipmethod: payload.shipmethod
+    });
 
-    updateLiveOrder(liveOrder, updatePayload);
+    updatedOrder = refreshOrderState(liveOrder) || updatedOrder;
 
     applyCustomFields(liveOrder, payload.customFields);
 
-    updatedOrder = refreshOrderState(liveOrder);
-    normalizedSummary = CartHelper.normalizeSummary(updatedOrder);
+    summaryOverrides = {
+      shippingcost: amount,
+      shippingCost: amount,
+      shipping: amount,
+      estimatedshipping: amount
+    };
+
+    if (updatedOrder && updatedOrder.summary) {
+      updatedOrder.summary.shippingcost = amount;
+    }
+
+    normalizedSummary = CartHelper.normalizeSummary(
+      updatedOrder,
+      summaryOverrides
+    );
     customFields = CartHelper.mergeCustomFields(
       CartHelper.getCustomFieldList(updatedOrder),
       {

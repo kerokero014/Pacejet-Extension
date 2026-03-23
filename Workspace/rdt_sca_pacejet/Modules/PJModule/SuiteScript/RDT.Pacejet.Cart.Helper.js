@@ -157,9 +157,32 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     return asString(shipmethod).trim();
   }
 
-  function normalizeSummary(order) {
-    var summary = (order && order.summary) || {};
-    var shippingCost =
+  function normalizeSummary(order, overrides) {
+    var baseSummary = (order && order.summary) || {};
+    var summary = {};
+    var shippingCost;
+    var taxTotal;
+    var subtotal;
+    var shipping;
+    var tax;
+    var total;
+    var key;
+
+    for (key in baseSummary) {
+      if (baseSummary.hasOwnProperty(key)) {
+        summary[key] = baseSummary[key];
+      }
+    }
+
+    if (overrides && typeof overrides === "object") {
+      for (key in overrides) {
+        if (overrides.hasOwnProperty(key)) {
+          summary[key] = overrides[key];
+        }
+      }
+    }
+
+    shippingCost =
       summary.shippingcost !== undefined
         ? summary.shippingcost
         : summary.shippingCost !== undefined
@@ -171,7 +194,8 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
               : summary.shipping !== undefined
                 ? summary.shipping
                 : 0;
-    var taxTotal =
+
+    taxTotal =
       summary.taxtotal !== undefined
         ? summary.taxtotal
         : summary.taxTotal !== undefined
@@ -183,13 +207,11 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
               : summary.taxAmount !== undefined
                 ? summary.taxAmount
                 : 0;
-    var subtotal = asNumber(summary.subtotal, 0);
-    var shipping = asNumber(shippingCost, 0);
-    var tax = asNumber(taxTotal, 0);
-    var total = asNumber(
-      summary.total || summary.totalAmount || summary.totalamount,
-      subtotal + shipping + tax
-    );
+
+    subtotal = asNumber(summary.subtotal, 0);
+    shipping = asNumber(shippingCost, 0);
+    tax = asNumber(taxTotal, 0);
+    total = +(subtotal + shipping + tax).toFixed(2);
 
     return {
       subtotal: subtotal,
