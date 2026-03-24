@@ -6,6 +6,18 @@ define("RDT.Pacejet.AccessorialMatrix", [], function () {
      * ACCESSORIAL SUPPORT PER CARRIER
      * ========================================== */
     carriers: {
+      NONE: {
+        driver_call: false,
+        job_site: false,
+        lift_gate: false,
+        residential: false,
+        schedule_appt: false,
+        self_storage: false,
+        school: false,
+        inside_delivery: false,
+        hazmat_parcel: false,
+        dangerous_goods: false
+      },
       AAA_COOPER: {
         driver_call: true,
         job_site: true,

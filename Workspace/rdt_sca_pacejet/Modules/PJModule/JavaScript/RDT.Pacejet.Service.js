@@ -468,7 +468,7 @@ define("RDT.Pacejet.Service", [
     var suppressed = [];
 
     rates.forEach(function (rate) {
-      // 🚨 If NOT pure dropShip → always keep
+      // If NOT pure dropShip → always keep
       if (!isDropShipOnly(rate)) {
         kept.push(rate);
         return;
@@ -1503,6 +1503,8 @@ define("RDT.Pacejet.Service", [
         modeResults.push({ mode: mode, rates: rates });
       }
 
+      // TODO: We will reactivate once we fix the rates and the tax issues being worked on right now.
+
       // var merged = mergeModeRates(modeResults);
       var merged = modeResults.reduce(function (acc, mr) {
         return acc.concat(mr.rates || []);
@@ -1540,7 +1542,7 @@ define("RDT.Pacejet.Service", [
       applyAccessorialDelta(merged);
 
       // TODO: We will reactivate once we fix the rates and the tax issues being worked on right now.
-      //merged = curateConsolidatedOptions(merged);
+      // merged = curateConsolidatedOptions(merged);
 
       merged.forEach(function (rate) {
         var smartTag = buildSmartCarrierTag(rate);
