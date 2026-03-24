@@ -65,10 +65,26 @@ define("RDT.Pacejet.Cart.Model", [
     };
   }
 
+  function persistPacejetFields(liveOrder, payload) {
+    var fieldMap = CartHelper.buildPersistenceFieldMap(payload);
+
+    // LiveOrder get() exposes order-level body values under options on this
+    // account, but the write shape for those fields is not verified. The
+    // attempted options/bodyFields mutations reintroduced the legacy
+    // `.length` crash in ssp_libraries, so we do not mutate them here.
+    return {
+      ok: false,
+      channel: "",
+      fields: fieldMap,
+      order: safeGet(liveOrder)
+    };
+  }
+
   function applyRateToCart(request) {
     var payload = CartHelper.normalizePayload(sanitizeRequest(request));
     var liveOrder = getLiveOrderModel();
     var updatedOrder;
+    var persistenceResult;
 
     CartHelper.validatePayload(payload);
 
@@ -87,6 +103,8 @@ define("RDT.Pacejet.Cart.Model", [
 
     safeGet(liveOrder);
 
+    persistenceResult = persistPacejetFields(liveOrder, payload);
+
     safeUpdate(liveOrder, {});
     updatedOrder = safeGet(liveOrder);
 
@@ -94,6 +112,12 @@ define("RDT.Pacejet.Cart.Model", [
       ok: true,
       shipmethod: payload.shipmethod,
       pacejetAmount: payload.pacejetAmount,
+      persistence: {
+        attempted: true,
+        saved: !!(persistenceResult && persistenceResult.ok),
+        channel: persistenceResult ? persistenceResult.channel : "",
+        fields: persistenceResult ? persistenceResult.fields : {}
+      },
       summary: CartHelper.normalizeSummary(updatedOrder)
     };
   }

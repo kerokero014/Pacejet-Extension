@@ -1,6 +1,14 @@
 define("RDT.Pacejet.Cart.Helper", [], function () {
   "use strict";
 
+  var PERSISTED_FIELD_IDS = {
+    pacejetAmount: "custbody_rdt_pacejet_amount",
+    carrier: "custbody_rdt_pacejet_carrier",
+    service: "custbody_rdt_pacejet_service",
+    transitDays: "custbody_rdt_pacejet_transitdays",
+    quoteJson: "custbody_rdt_pacejet_quotejson"
+  };
+
   function isPlainObject(value) {
     return (
       !!value &&
@@ -115,9 +123,153 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     return 0;
   }
 
+  function getFieldValue(field) {
+    if (!field || typeof field !== "object") {
+      return "";
+    }
+
+    if (field.value !== undefined && field.value !== null && field.value !== "") {
+      return field.value;
+    }
+
+    if (field.internalid !== undefined && field.internalid !== null && field.internalid !== "") {
+      return field.internalid;
+    }
+
+    if (field.internalId !== undefined && field.internalId !== null && field.internalId !== "") {
+      return field.internalId;
+    }
+
+    return "";
+  }
+
+  function getFieldId(field) {
+    if (!field || typeof field !== "object") {
+      return "";
+    }
+
+    return asString(field.id || field.name || field.fieldid || field.fieldId).trim();
+  }
+
+  function findFieldValueInLists(raw, fieldId) {
+    var lists = [
+      raw && raw.customfields,
+      raw && raw.customFields,
+      raw && raw.options,
+      raw && raw.bodyfields,
+      raw && raw.bodyFields,
+      raw && raw.fields,
+      raw && raw.itemoptions_detail && raw.itemoptions_detail.fields,
+      raw && raw.itemoptions && raw.itemoptions.fields
+    ];
+    var list;
+    var i;
+    var candidateId;
+    var value;
+
+    for (i = 0; i < lists.length; i += 1) {
+      list = lists[i];
+
+      if (Array.isArray(list)) {
+        for (var j = 0; j < list.length; j += 1) {
+          candidateId = getFieldId(list[j]);
+          if (candidateId && candidateId === fieldId) {
+            value = getFieldValue(list[j]);
+            if (value !== "" || value === 0) {
+              return value;
+            }
+          }
+        }
+      } else if (isPlainObject(list) && Object.prototype.hasOwnProperty.call(list, fieldId)) {
+        return list[fieldId];
+      }
+    }
+
+    return "";
+  }
+
+  function findFieldValue(raw, fieldId, depth, seen) {
+    var keys;
+    var nested;
+    var i;
+
+    if (!raw || !fieldId || depth > 4) {
+      return "";
+    }
+
+    if (seen.indexOf(raw) !== -1) {
+      return "";
+    }
+
+    seen.push(raw);
+
+    if (isPlainObject(raw) && Object.prototype.hasOwnProperty.call(raw, fieldId)) {
+      return raw[fieldId];
+    }
+
+    var listedValue = findFieldValueInLists(raw, fieldId);
+    if (listedValue !== "" || listedValue === 0) {
+      return listedValue;
+    }
+
+    keys = Object.keys(raw);
+    for (i = 0; i < keys.length; i += 1) {
+      nested = raw[keys[i]];
+
+      if (!nested || typeof nested !== "object") {
+        continue;
+      }
+
+      nested = findFieldValue(nested, fieldId, depth + 1, seen);
+      if (nested !== "" || nested === 0) {
+        return nested;
+      }
+    }
+
+    return "";
+  }
+
+  function getPersistedFieldValue(order, fieldId) {
+    var value = findFieldValue(order, fieldId, 0, []);
+
+    return value !== "" || value === 0 ? value : "";
+  }
+
+  function getPersistedPacejetAmount(order) {
+    var value = getPersistedFieldValue(order, PERSISTED_FIELD_IDS.pacejetAmount);
+
+    return value === "" ? null : asNumber(value, 0);
+  }
+
+  function buildPersistenceFieldMap(payload) {
+    var normalized = normalizePayload(payload);
+    var fields = {};
+
+    fields[PERSISTED_FIELD_IDS.pacejetAmount] = normalized.pacejetAmount.toFixed(2);
+
+    if (normalized.carrier) {
+      fields[PERSISTED_FIELD_IDS.carrier] = normalized.carrier;
+    }
+
+    if (normalized.service) {
+      fields[PERSISTED_FIELD_IDS.service] = normalized.service;
+    }
+
+    if (normalized.transitDays) {
+      fields[PERSISTED_FIELD_IDS.transitDays] = normalized.transitDays;
+    }
+
+    if (normalized.quoteJson) {
+      fields[PERSISTED_FIELD_IDS.quoteJson] = normalized.quoteJson;
+    }
+
+    return fields;
+  }
+
   function normalizeSummary(order) {
     var summary = (order && order.summary) || {};
     var subtotal = asNumber(getSummaryValue(summary, ["subtotal"]), 0);
+    var persistedAmount = getPersistedPacejetAmount(order);
     var shipping = asNumber(
       getSummaryValue(summary, [
         "shipping",
@@ -143,6 +295,11 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       subtotal + shipping + tax
     );
 
+    if (persistedAmount !== null) {
+      shipping = persistedAmount;
+      total = subtotal + shipping + tax;
+    }
+
     return {
       subtotal: +subtotal.toFixed(2),
       shipping: +shipping.toFixed(2),
@@ -152,9 +309,13 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
   }
 
   return {
+    buildPersistenceFieldMap: buildPersistenceFieldMap,
+    getPersistedFieldValue: getPersistedFieldValue,
+    getPersistedPacejetAmount: getPersistedPacejetAmount,
     normalizePayload: normalizePayload,
     normalizeShipmethod: normalizeShipmethod,
     normalizeSummary: normalizeSummary,
+    PERSISTED_FIELD_IDS: PERSISTED_FIELD_IDS,
     toScalarValue: toScalarValue,
     validatePayload: validatePayload
   };

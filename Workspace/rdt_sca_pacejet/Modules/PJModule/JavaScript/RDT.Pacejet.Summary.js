@@ -98,27 +98,199 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     return 0;
   }
 
-  function buildOverriddenSummary(order, sourceSummary) {
+  function getFieldValue(field) {
+    if (!field || typeof field !== "object") {
+      return "";
+    }
+
+    if (field.value !== undefined && field.value !== null && field.value !== "") {
+      return field.value;
+    }
+
+    if (field.internalid !== undefined && field.internalid !== null && field.internalid !== "") {
+      return field.internalid;
+    }
+
+    if (field.internalId !== undefined && field.internalId !== null && field.internalId !== "") {
+      return field.internalId;
+    }
+
+    return "";
+  }
+
+  function getFieldId(field) {
+    if (!field || typeof field !== "object") {
+      return "";
+    }
+
+    return String(field.id || field.name || field.fieldid || field.fieldId || "");
+  }
+
+  function findFieldValueInRaw(raw, fieldId, depth, seen) {
+    var lists;
+    var list;
+    var i;
+    var j;
+    var nested;
+    var candidateId;
+
+    if (!raw || !fieldId || depth > 4) {
+      return "";
+    }
+
+    if (seen.indexOf(raw) !== -1) {
+      return "";
+    }
+
+    seen.push(raw);
+
+    if (
+      Object.prototype.hasOwnProperty.call(raw, fieldId) &&
+      raw[fieldId] !== undefined &&
+      raw[fieldId] !== null &&
+      raw[fieldId] !== ""
+    ) {
+      return raw[fieldId];
+    }
+
+    lists = [
+      raw.customFields,
+      raw.customfields,
+      raw.options,
+      raw.bodyFields,
+      raw.bodyfields,
+      raw.fields,
+      raw.itemoptions_detail && raw.itemoptions_detail.fields,
+      raw.itemoptions && raw.itemoptions.fields
+    ];
+
+    for (i = 0; i < lists.length; i += 1) {
+      list = lists[i];
+
+      if (Array.isArray(list)) {
+        for (j = 0; j < list.length; j += 1) {
+          candidateId = getFieldId(list[j]);
+          if (candidateId === fieldId) {
+            nested = getFieldValue(list[j]);
+            if (nested !== "" || nested === 0) {
+              return nested;
+            }
+          }
+        }
+      } else if (
+        list &&
+        typeof list === "object" &&
+        Object.prototype.hasOwnProperty.call(list, fieldId)
+      ) {
+        return list[fieldId];
+      }
+    }
+
+    for (i = 0; i < Object.keys(raw).length; i += 1) {
+      nested = raw[Object.keys(raw)[i]];
+      if (!nested || typeof nested !== "object") {
+        continue;
+      }
+
+      nested = findFieldValueInRaw(nested, fieldId, depth + 1, seen);
+      if (nested !== "" || nested === 0) {
+        return nested;
+      }
+    }
+
+    return "";
+  }
+
+  function getDeepOrderFieldValue(order, fieldId) {
+    var directValue;
+    var raw;
+
+    if (!order || !fieldId) {
+      return "";
+    }
+
+    if (order.get) {
+      directValue = order.get(fieldId);
+      if (directValue !== undefined && directValue !== null && directValue !== "") {
+        return directValue;
+      }
+    }
+
+    raw = (order.toJSON && order.toJSON()) || order.attributes || order;
+    return findFieldValueInRaw(raw, fieldId, 0, []);
+  }
+
+  function getSelectedRateForOrder(order) {
     var selectedRate = PacejetState.getSelectedRate
       ? PacejetState.getSelectedRate()
       : null;
-    var summary = cloneObject(sourceSummary);
     var currentShipmethod = getShipmethodId(
       order && typeof order.get === "function" ? order.get("shipmethod") : ""
     );
-    var subtotal;
-    var nativeTax;
-    var nativeShipping;
-    var effectiveTaxRate;
-    var shipping;
-    var taxTotal;
-    var total;
 
     if (
       !selectedRate ||
       !selectedRate.shipmethod ||
       getShipmethodId(selectedRate.shipmethod) !== currentShipmethod
     ) {
+      return null;
+    }
+
+    return selectedRate;
+  }
+
+  function getResolvedShippingAmount(order, sourceSummary) {
+    var persistedAmount = getPacejetShippingOverride(order);
+    var selectedRate = getSelectedRateForOrder(order);
+    var nativeShipping = asNumber(
+      getSummaryValue(sourceSummary || {}, [
+        "shipping",
+        "shippingcost",
+        "shippingCost",
+        "estimatedshipping"
+      ]),
+      0
+    );
+
+    if (persistedAmount !== null) {
+      return {
+        amount: persistedAmount,
+        source: "persisted"
+      };
+    }
+
+    if (selectedRate && selectedRate.amount !== undefined && selectedRate.amount !== null) {
+      return {
+        amount: asNumber(selectedRate.amount, nativeShipping),
+        source: "selectedRate"
+      };
+    }
+
+    return {
+      amount: nativeShipping,
+      source: "native"
+    };
+  }
+
+  function hasRenderableValues(data) {
+    if (!data) {
+      return false;
+    }
+
+    return !!(data.subtotal || data.shipping || data.tax || data.total);
+  }
+
+  function buildOverriddenSummary(order, sourceSummary) {
+    var summary = cloneObject(sourceSummary);
+    var resolvedShipping = getResolvedShippingAmount(order, summary);
+    var subtotal;
+    var nativeTax;
+    var effectiveTaxRate;
+    var shipping;
+    var taxTotal;
+    var total;
+
+    if (!resolvedShipping || resolvedShipping.source === "native") {
       return summary;
     }
 
@@ -133,20 +305,8 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
       ]),
       0
     );
-    nativeShipping = asNumber(
-      getSummaryValue(summary, [
-        "shipping",
-        "shippingcost",
-        "shippingCost",
-        "estimatedshipping"
-      ]),
-      0
-    );
     effectiveTaxRate = subtotal > 0 ? nativeTax / subtotal : 0;
-    shipping = asNumber(
-      selectedRate.amount !== undefined ? selectedRate.amount : nativeShipping,
-      nativeShipping
-    );
+    shipping = asNumber(resolvedShipping.amount, 0);
     taxTotal = +((subtotal + shipping) * effectiveTaxRate).toFixed(2);
     total = +(subtotal + shipping + taxTotal).toFixed(2);
 
@@ -240,26 +400,11 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
   }
 
   function getCustomFieldValue(order, fieldId) {
-    var customFields;
-    var i;
-
-    if (!order || !order.get || !fieldId) {
+    if (!order || !fieldId) {
       return "";
     }
 
-    customFields = order.get("customFields") || order.get("customfields") || [];
-
-    if (!Array.isArray(customFields)) {
-      return "";
-    }
-
-    for (i = 0; i < customFields.length; i += 1) {
-      if (customFields[i] && customFields[i].id === fieldId) {
-        return customFields[i].value;
-      }
-    }
-
-    return "";
+    return getDeepOrderFieldValue(order, fieldId);
   }
 
   function getPacejetShippingOverride(order) {
@@ -328,9 +473,9 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
   function getSummary(order) {
     if (!order || !order.get) return null;
 
-    var summary = getOrderSummaryRecord(order);
-    var pacejetShipping = getPacejetShippingOverride(order);
-    var summaryShipping = getShipping(order);
+    var sourceSummary = getOrderSummaryRecord(order);
+    var summary = buildOverriddenSummary(order, sourceSummary);
+    var resolvedShipping = getResolvedShippingAmount(order, sourceSummary);
     var tax = num(
       summary.taxtotal ||
         summary.taxTotal ||
@@ -339,7 +484,7 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
         summary.taxAmount ||
         0
     );
-    var shipping = summaryShipping;
+    var shipping = asNumber(resolvedShipping.amount, 0);
     var subtotal = num(summary.subtotal || 0);
     var total = num(
       summary.total ||
@@ -349,7 +494,7 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
         0
     );
 
-    if (pacejetShipping !== null || !total) {
+    if (resolvedShipping.source !== "native" || !total) {
       total = +(subtotal + shipping + tax).toFixed(2);
     }
 
@@ -575,12 +720,38 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     }
   }
 
+  function showNativeConfirmationSummary($container) {
+    var selectorsToShow = [
+      ".order-wizard-cart-summary-body > .order-wizard-cart-summary-subtotal",
+      ".order-wizard-cart-summary-subtotal",
+      ".order-wizard-cart-summary-shipping-cost-applied",
+      ".order-wizard-cart-summary-shipping",
+      ".order-wizard-cart-summary-tax",
+      ".order-wizard-cart-summary-tax-total",
+      ".order-wizard-cart-summary-taxes",
+      ".order-wizard-cart-summary-estimated-tax",
+      ".order-wizard-cart-summary-total",
+      ".rdt-pj-tax-row"
+    ];
+
+    $container.find(selectorsToShow.join(", ")).show();
+    $container
+      .find(".order-wizard-cart-summary-subtotal-text, .order-wizard-cart-summary-subtotal-legend")
+      .show();
+    $container.find(".rdt-pj-confirmation-summary").remove();
+  }
+
   function ensureConfirmationSummary(data) {
     var $container = $(".order-wizard-cart-summary-container").first();
     if (!$container.length) {
       $container = $(".order-wizard-cart-summary").first();
     }
     if (!$container.length) return false;
+
+    if (!hasRenderableValues(data)) {
+      showNativeConfirmationSummary($container);
+      return false;
+    }
 
     var selectorsToHide = [
       ".order-wizard-cart-summary-body > .order-wizard-cart-summary-subtotal",
@@ -595,16 +766,6 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
       ".rdt-pj-tax-row"
     ];
 
-    $container.find(selectorsToHide.join(", ")).hide();
-    $container
-      .find(
-        ".order-wizard-cart-summary-subtotal-text, " +
-          ".order-wizard-cart-summary-subtotal-legend, " +
-          ".order-wizard-cart-summary-shipping-cost-applied p, " +
-          ".order-wizard-cart-summary-total p"
-      )
-      .hide();
-
     var $custom = $container.find(".rdt-pj-confirmation-summary");
     if (!$custom.length) {
       $custom = $('<div class="rdt-pj-confirmation-summary"></div>');
@@ -617,6 +778,16 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
       { key: "shipping", label: "Shipping Cost", amount: data.shipping },
       { key: "total", label: "Total", amount: data.total }
     ];
+
+    $container.find(selectorsToHide.join(", ")).hide();
+    $container
+      .find(
+        ".order-wizard-cart-summary-subtotal-text, " +
+          ".order-wizard-cart-summary-subtotal-legend, " +
+          ".order-wizard-cart-summary-shipping-cost-applied p, " +
+          ".order-wizard-cart-summary-total p"
+      )
+      .hide();
 
     $custom.empty();
 

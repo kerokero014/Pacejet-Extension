@@ -492,6 +492,74 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
     return (window.location.hash || "").toLowerCase().indexOf("review") !== -1;
   }
 
+  function getShipmethodId(shipmethod) {
+    if (shipmethod === null || shipmethod === undefined || shipmethod === "") {
+      return "";
+    }
+
+    if (typeof shipmethod === "object") {
+      return String(
+        shipmethod.internalid ||
+          shipmethod.internalId ||
+          shipmethod.id ||
+          shipmethod.shipmethod ||
+          shipmethod.value ||
+          ""
+      );
+    }
+
+    return String(shipmethod);
+  }
+
+  function getOrderSummaryShipping(order) {
+    var summary;
+
+    if (!order || !order.get) {
+      return 0;
+    }
+
+    summary = order.get("summary") || {};
+    return Number(
+      summary.shipping ||
+        summary.shippingcost ||
+        summary.shippingCost ||
+        summary.estimatedshipping ||
+        0
+    ) || 0;
+  }
+
+  function getReviewRate(order) {
+    var selectedRate = PacejetState && PacejetState.getSelectedRate
+      ? PacejetState.getSelectedRate()
+      : null;
+    var shipmethodId = getShipmethodId(order && order.get ? order.get("shipmethod") : "");
+
+    if (selectedRate && getShipmethodId(selectedRate.shipmethod) === shipmethodId) {
+      return {
+        shipmethod: shipmethodId,
+        carrier: selectedRate.carrier || "Pacejet",
+        service: selectedRate.service || "Selected shipping service",
+        amount:
+          selectedRate.amount !== undefined && selectedRate.amount !== null
+            ? selectedRate.amount
+            : getOrderSummaryShipping(order),
+        transitDays: selectedRate.transitDays || ""
+      };
+    }
+
+    if (!shipmethodId) {
+      return null;
+    }
+
+    return {
+      shipmethod: shipmethodId,
+      carrier: "Pacejet",
+      service: "Selected shipping service",
+      amount: getOrderSummaryShipping(order),
+      transitDays: ""
+    };
+  }
+
   function clearReviewSelection() {
     $(".rdt-mui-shipping-card").remove();
     $(
@@ -529,16 +597,14 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
     return $card;
   }
 
-  function renderReviewSelection() {
-    var selectedRate = PacejetState && PacejetState.getSelectedRate
-      ? PacejetState.getSelectedRate()
-      : null;
+  function renderReviewSelection(order) {
+    var reviewRate = getReviewRate(order);
     var $method = $(
       ".order-wizard-showshipments-module-shipping-details-method, " +
       ".order-wizard-showshipments-actionable-module-shipping-details-method"
     ).first();
 
-    if (!isReviewStep() || !$method.length || !selectedRate || !selectedRate.shipmethod) {
+    if (!isReviewStep() || !$method.length || !reviewRate || !reviewRate.shipmethod) {
       clearReviewSelection();
       return;
     }
@@ -547,7 +613,7 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
     $method.find("select").addClass("rdt-mui-native-hidden");
 
     var $existing = $method.siblings(".rdt-mui-shipping-card").first();
-    var $card = buildReviewCard(selectedRate);
+    var $card = buildReviewCard(reviewRate);
 
     if ($existing.length) {
       $existing.replaceWith($card);

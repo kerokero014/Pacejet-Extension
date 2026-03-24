@@ -59,6 +59,22 @@ define(
       return raw && typeof raw === "object" ? raw : {};
     }
 
+    function normalizeQuoteJson(value) {
+      if (value === null || value === undefined || value === "") {
+        return "";
+      }
+
+      if (typeof value === "string") {
+        return value;
+      }
+
+      try {
+        return JSON.stringify(value);
+      } catch (_e) {
+        return String(toScalarValue(value));
+      }
+    }
+
     function getRequestBody(context) {
       var request =
         (context && (context.request || context.req)) || null;
@@ -111,7 +127,7 @@ define(
             : "",
         quoteJson:
           data.quoteJson !== null && data.quoteJson !== undefined
-            ? String(toScalarValue(data.quoteJson))
+            ? normalizeQuoteJson(data.quoteJson)
             : "",
         customfields: Array.isArray(data.customfields) ? data.customfields : [],
         customFields: Array.isArray(data.customFields) ? data.customFields : []
