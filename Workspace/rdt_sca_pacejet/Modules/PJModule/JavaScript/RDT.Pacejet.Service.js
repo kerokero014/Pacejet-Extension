@@ -1459,7 +1459,6 @@ define("RDT.Pacejet.Service", [
 
           originBlock._mappedRates = mapped;
 
-          // Phase 1 Filtering (per origin)
           var filtered = filterRatesPerOrigin(k, originBlock);
 
           originBlock._filteredRates = filtered;
