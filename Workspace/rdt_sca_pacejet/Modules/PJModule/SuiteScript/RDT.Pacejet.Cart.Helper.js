@@ -1,9 +1,11 @@
 define("RDT.Pacejet.Cart.Helper", [], function () {
   "use strict";
 
-  function asNumber(value, fallback) {
-    var num = Number(value);
-    return isFinite(num) ? num : fallback || 0;
+  function isPlainObject(value) {
+    return (
+      !!value &&
+      Object.prototype.toString.call(value) === "[object Object]"
+    );
   }
 
   function asString(value) {
@@ -14,129 +16,43 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     return String(value);
   }
 
-  function cloneField(field) {
-    return {
-      id: field && (field.id || field.name || field.fieldid || field.fieldId),
-      value: asString(field ? field.value : "")
-    };
+  function asNumber(value, fallback) {
+    var num = Number(value);
+    return isFinite(num) ? num : fallback || 0;
   }
 
-  function getCustomFieldList(order) {
-    var list =
-      (order && (order.customfields || order.customFields)) ||
-      [];
-
-    if (!Array.isArray(list)) {
-      return [];
+  function toScalarValue(value) {
+    if (value === null || value === undefined) {
+      return "";
     }
 
-    return list
-      .map(cloneField)
-      .filter(function (field) {
-        return !!field.id;
-      });
-  }
-
-  function setField(fieldMap, fieldId, value) {
-    if (!fieldId) {
-      return;
+    if (typeof value === "boolean") {
+      return value ? "T" : "F";
     }
 
-    fieldMap[fieldId] = {
-      id: fieldId,
-      value: value
-    };
-  }
+    if (typeof value === "string" || typeof value === "number") {
+      return value;
+    }
 
-  function normalizeCustomFields(customFields) {
-    return Array.isArray(customFields)
-      ? customFields
-          .map(function (field) {
-            if (!field) {
-              return null;
-            }
-
-            var fieldId =
-              field.id || field.name || field.fieldid || field.fieldId;
-
-            if (!fieldId) {
-              return null;
-            }
-
-            return {
-              id: asString(fieldId),
-              value: asString(field.value)
-            };
-          })
-          .filter(function (field) {
-            return !!field;
-          })
-      : [];
-  }
-
-  function getCustomFieldValue(customFields, fieldId) {
-    var match = (Array.isArray(customFields) ? customFields : []).filter(function (
-      field
-    ) {
-      return field && field.id === fieldId;
-    })[0];
-
-    return match ? match.value : "";
-  }
-
-  function normalizePayload(payload) {
-    var raw = payload || {};
-    var customFields = normalizeCustomFields(raw.customFields || raw.customfields);
-
-    return {
-      shipmethod: asString(raw.shipmethod || raw.shipMethod).trim(),
-      customFields: customFields,
-      pacejetAmount: asNumber(
-        raw.pacejetAmount !== undefined && raw.pacejetAmount !== null
-          ? raw.pacejetAmount
-          : raw.cost !== undefined && raw.cost !== null
-            ? raw.cost
-            : getCustomFieldValue(customFields, "custbody_rdt_pacejet_amount"),
-        0
-      ),
-      raw: raw
-    };
-  }
-
-  function getFieldMap(existingFields) {
-    var fieldMap = {};
-
-    (Array.isArray(existingFields) ? existingFields : []).forEach(function (
-      field
-    ) {
-      if (field && field.id) {
-        fieldMap[field.id] = cloneField(field);
+    if (isPlainObject(value)) {
+      if (value.value !== undefined && value.value !== value) {
+        return toScalarValue(value.value);
       }
-    });
 
-    return fieldMap;
-  }
-
-  function validatePayload(payload) {
-    if (!payload.shipmethod) {
-      throw new Error("shipmethod is required");
-    }
-  }
-
-  function mergeCustomFields(existingFields, payload) {
-    var fieldMap = getFieldMap(existingFields);
-    var customFields = normalizeCustomFields(payload.customFields);
-
-    customFields.forEach(function (field) {
-      var fieldId = field && (field.id || field.name || field.fieldId);
-      if (fieldId) {
-        setField(fieldMap, fieldId, field.value);
+      if (value.internalid !== undefined) {
+        return toScalarValue(value.internalid);
       }
-    });
 
-    return Object.keys(fieldMap).map(function (fieldId) {
-      return fieldMap[fieldId];
-    });
+      if (value.internalId !== undefined) {
+        return toScalarValue(value.internalId);
+      }
+
+      if (value.id !== undefined) {
+        return toScalarValue(value.id);
+      }
+    }
+
+    return asString(value);
   }
 
   function normalizeShipmethod(shipmethod) {
@@ -157,76 +73,89 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     return asString(shipmethod).trim();
   }
 
-  function normalizeSummary(order, overrides) {
-    var baseSummary = (order && order.summary) || {};
-    var summary = {};
-    var shippingCost;
-    var taxTotal;
-    var subtotal;
-    var shipping;
-    var tax;
-    var total;
-    var key;
-
-    for (key in baseSummary) {
-      if (baseSummary.hasOwnProperty(key)) {
-        summary[key] = baseSummary[key];
-      }
-    }
-
-    if (overrides && typeof overrides === "object") {
-      for (key in overrides) {
-        if (overrides.hasOwnProperty(key)) {
-          summary[key] = overrides[key];
-        }
-      }
-    }
-
-    shippingCost =
-      summary.shippingcost !== undefined
-        ? summary.shippingcost
-        : summary.shippingCost !== undefined
-          ? summary.shippingCost
-          : summary.estimatedshipping !== undefined
-            ? summary.estimatedshipping
-            : summary.handlingcost !== undefined
-              ? summary.handlingcost
-              : summary.shipping !== undefined
-                ? summary.shipping
-                : 0;
-
-    taxTotal =
-      summary.taxtotal !== undefined
-        ? summary.taxtotal
-        : summary.taxTotal !== undefined
-          ? summary.taxTotal
-          : summary.tax !== undefined
-            ? summary.tax
-            : summary.taxamount !== undefined
-              ? summary.taxamount
-              : summary.taxAmount !== undefined
-                ? summary.taxAmount
-                : 0;
-
-    subtotal = asNumber(summary.subtotal, 0);
-    shipping = asNumber(shippingCost, 0);
-    tax = asNumber(taxTotal, 0);
-    total = +(subtotal + shipping + tax).toFixed(2);
+  function normalizePayload(payload) {
+    var raw = isPlainObject(payload) ? payload : {};
+    var shipmethod =
+      raw.shipmethod !== undefined && raw.shipmethod !== null && raw.shipmethod !== ""
+        ? raw.shipmethod
+        : raw.shipMethod;
 
     return {
-      subtotal: subtotal,
-      shipping: shipping,
-      tax: tax,
-      total: total
+      shipmethod: normalizeShipmethod(shipmethod),
+      pacejetAmount: asNumber(
+        raw.pacejetAmount !== undefined && raw.pacejetAmount !== null
+          ? toScalarValue(raw.pacejetAmount)
+          : raw.cost !== undefined && raw.cost !== null
+            ? toScalarValue(raw.cost)
+            : 0,
+        0
+      ),
+      carrier: asString(toScalarValue(raw.carrier)),
+      service: asString(toScalarValue(raw.service)),
+      transitDays: asString(toScalarValue(raw.transitDays)),
+      quoteJson: asString(toScalarValue(raw.quoteJson))
+    };
+  }
+
+  function validatePayload(payload) {
+    if (!payload.shipmethod) {
+      throw new Error("shipmethod is required");
+    }
+  }
+
+  function getSummaryValue(summary, keys) {
+    var i;
+
+    for (i = 0; i < keys.length; i += 1) {
+      if (summary[keys[i]] !== undefined && summary[keys[i]] !== null) {
+        return summary[keys[i]];
+      }
+    }
+
+    return 0;
+  }
+
+  function normalizeSummary(order) {
+    var summary = (order && order.summary) || {};
+    var subtotal = asNumber(getSummaryValue(summary, ["subtotal"]), 0);
+    var shipping = asNumber(
+      getSummaryValue(summary, [
+        "shipping",
+        "shippingcost",
+        "shippingCost",
+        "estimatedshipping",
+        "handlingcost"
+      ]),
+      0
+    );
+    var tax = asNumber(
+      getSummaryValue(summary, [
+        "tax",
+        "taxtotal",
+        "taxTotal",
+        "taxamount",
+        "taxAmount"
+      ]),
+      0
+    );
+    var total = asNumber(
+      getSummaryValue(summary, ["total", "order_total", "totalamount", "totalAmount"]),
+      subtotal + shipping + tax
+    );
+
+    return {
+      subtotal: +subtotal.toFixed(2),
+      shipping: +shipping.toFixed(2),
+      tax: +tax.toFixed(2),
+      total: +total.toFixed(2)
     };
   }
 
   return {
-    getCustomFieldList: getCustomFieldList,
-    mergeCustomFields: mergeCustomFields,
-    normalizeShipmethod: normalizeShipmethod,
     normalizePayload: normalizePayload,
+    normalizeShipmethod: normalizeShipmethod,
     normalizeSummary: normalizeSummary,
+    toScalarValue: toScalarValue,
     validatePayload: validatePayload
   };
 });

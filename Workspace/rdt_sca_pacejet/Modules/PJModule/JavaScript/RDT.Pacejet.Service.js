@@ -78,13 +78,11 @@ define("RDT.Pacejet.Service", [
   }
 
   function normalizeAccessorialSelection(accessorials) {
-    return accessorials && typeof accessorials === "object" && !Array.isArray(accessorials)
+    return accessorials &&
+      typeof accessorials === "object" &&
+      !Array.isArray(accessorials)
       ? accessorials
       : {};
-  }
-
-  function normalizeCustomFields(customFields) {
-    return Array.isArray(customFields) ? customFields : [];
   }
 
   function buildSafeLiveOrderPayload(data) {
@@ -95,7 +93,17 @@ define("RDT.Pacejet.Service", [
         payload.shipmethod === null || payload.shipmethod === undefined
           ? ""
           : String(payload.shipmethod),
-      customfields: normalizeCustomFields(payload.customfields)
+      pacejetAmount: Number(payload.pacejetAmount || payload.amount || 0) || 0,
+      carrier: payload.carrier ? String(payload.carrier) : "",
+      service: payload.service ? String(payload.service) : "",
+      transitDays:
+        payload.transitDays === null || payload.transitDays === undefined
+          ? ""
+          : String(payload.transitDays),
+      quoteJson: payload.quoteJson ? String(payload.quoteJson) : "",
+      customfields: Array.isArray(payload.customfields)
+        ? payload.customfields
+        : []
     };
   }
 
@@ -104,6 +112,12 @@ define("RDT.Pacejet.Service", [
 
     return buildSafeLiveOrderPayload({
       shipmethod: payload.shipmethod,
+      pacejetAmount: payload.pacejetAmount,
+      amount: payload.amount,
+      carrier: payload.carrier,
+      service: payload.service,
+      transitDays: payload.transitDays,
+      quoteJson: payload.quoteJson,
       customfields: payload.customfields || payload.customFields
     });
   }
@@ -1420,8 +1434,6 @@ define("RDT.Pacejet.Service", [
 
     var outboundPayload = buildRawRateRequest(payloads, cartSnapshot);
 
-    console.log("[Pacejet] Outbound rate payload:", outboundPayload);
-
     return requestRates(outboundPayload).then(function (serviceResponse) {
       if (state.cache._activeRequestId !== thisRequestId) {
         console.warn("[Pacejet] Ignoring stale rate response.");
@@ -1500,7 +1512,6 @@ define("RDT.Pacejet.Service", [
       merged = applyCarrierLimits(merged);
       merged = applyShipmentSuppression(merged);
       merged = RateMapping.decorateRates(merged);
-      console.log("AFTER DECORATE:", merged);
 
       var selectedAccessorials =
         (state.selection && state.selection.accessorials) || {};
@@ -1526,21 +1537,6 @@ define("RDT.Pacejet.Service", [
           rate.cost = rate.finalCost;
         }
       });
-
-      if (console && typeof console.table === "function") {
-        console.table(
-          merged.map(function (rate) {
-            return {
-              shipCode: String(rate.shipCode || ""),
-              carrier: rate.carrierName || rate.carrier || "",
-              service: rate.serviceName || rate.service || "",
-              baseCost: Number(rate.baseCost || 0),
-              markupAmount: Number(rate.markupAmount || 0),
-              finalCost: Number(rate.finalCost || rate.cost || 0)
-            };
-          })
-        );
-      }
 
       applyAccessorialDelta(merged);
 

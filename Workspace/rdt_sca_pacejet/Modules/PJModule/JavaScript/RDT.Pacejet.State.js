@@ -3,6 +3,29 @@
 define("RDT.Pacejet.State", [], function () {
   "use strict";
 
+  function clone(value) {
+    var key;
+    var copy;
+
+    if (!value || typeof value !== "object") {
+      return value;
+    }
+
+    if (Array.isArray(value)) {
+      return value.map(clone);
+    }
+
+    copy = {};
+
+    for (key in value) {
+      if (value.hasOwnProperty(key)) {
+        copy[key] = clone(value[key]);
+      }
+    }
+
+    return copy;
+  }
+
   var state = {
     cache: {
       lastHash: null,
@@ -29,7 +52,8 @@ define("RDT.Pacejet.State", [], function () {
     },
 
     unmappedRates: [],
-    fallbackRates: []
+    fallbackRates: [],
+    selectedRate: null
   };
 
   return {
@@ -40,6 +64,19 @@ define("RDT.Pacejet.State", [], function () {
     setAccessorials: function (acc) {
       state.selection.accessorials =
         acc && typeof acc === "object" && !Array.isArray(acc) ? acc : {};
+    },
+
+    setSelectedRate: function (rate) {
+      state.selectedRate = rate && typeof rate === "object" ? clone(rate) : null;
+      return this.getSelectedRate();
+    },
+
+    getSelectedRate: function () {
+      return state.selectedRate ? clone(state.selectedRate) : null;
+    },
+
+    clearSelectedRate: function () {
+      state.selectedRate = null;
     },
 
     recordUnmapped: function (info) {
@@ -99,6 +136,7 @@ define("RDT.Pacejet.State", [], function () {
         accessorials: {}
       };
 
+      state.selectedRate = null;
       state.flags.accessorialsDirty = false;
       state.flags.ratesVisible = false;
       state.flags.ratesLoading = false;

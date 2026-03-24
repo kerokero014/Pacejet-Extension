@@ -6,18 +6,18 @@ define("RDT.Pacejet.Checkout.Module.V2", [
   "RDT.Pacejet.Config",
   "RDT.Pacejet.State",
   "RDT.Pacejet.Service",
+  "RDT.Pacejet.Summary",
   "RDT.Pacejet.UI",
-  "RDT.Pacejet.AccessorialMatrix",
-  "RDT.Pacejet.Summary"
+  "RDT.Pacejet.AccessorialMatrix"
 ], function (
   LiveOrderModel,
   jQuery,
   PacejetConfig,
   PacejetState,
   PacejetService,
+  PacejetSummary,
   PacejetUI,
-  AccessorialMatrix,
-  PacejetSummary
+  AccessorialMatrix
 ) {
   "use strict";
 
@@ -30,19 +30,6 @@ define("RDT.Pacejet.Checkout.Module.V2", [
   var SUMMARY_FETCH_IN_FLIGHT = false;
 
   var state = PacejetState.get();
-
-  var ACCESSORIAL_FIELD_MAP = {
-    driver_call: "custbody_callpriortruck",
-    lift_gate: "custbody_pj_ssliftgate",
-    job_site: "custbody_jobsite",
-    residential: "custbody_residential",
-    schedule_appt: "custbody_appointmenttruck",
-    self_storage: "custbody_selfstorage",
-    school: "custbody_school_delivery",
-    inside_delivery: "custbody_inside_delivery",
-    dangerous_goods: "custbody_dangerous_goods",
-    hazmat_parcel: "custbody_access_hazmat_parcel"
-  };
 
   function asNumber(value, fallback) {
     var num = Number(value);
@@ -57,198 +44,20 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     return String(value);
   }
 
-  function asCheckboxValue(value) {
-    if (
-      value === true ||
-      value === "T" ||
-      value === "true" ||
-      value === 1 ||
-      value === "1"
-    ) {
-      return "T";
-    }
-
-    return "F";
-  }
-
   function normalizeOrigins(origins) {
     return Array.isArray(origins) ? origins : [];
   }
 
   function normalizeAccessorialSelection(accessorials) {
-    return accessorials && typeof accessorials === "object" && !Array.isArray(accessorials)
+    return accessorials &&
+      typeof accessorials === "object" &&
+      !Array.isArray(accessorials)
       ? accessorials
       : {};
   }
 
   function normalizeAccessorialArray(accessorials) {
     return Array.isArray(accessorials) ? accessorials : [];
-  }
-
-  function normalizeCustomFields(customFields) {
-    return Array.isArray(customFields) ? customFields : [];
-  }
-
-  function buildSafeLiveOrderPayload(data) {
-    var payload = data || {};
-
-    return {
-      shipmethod: getShipmethodId(payload.shipmethod),
-      customfields: normalizeCustomFields(payload.customfields)
-    };
-  }
-
-  function cloneCustomField(field) {
-    return {
-      id: field && (field.id || field.name || field.fieldid || field.fieldId),
-      value: field ? field.value : ""
-    };
-  }
-
-  function getOrderCustomFields(order) {
-    var list =
-      (order &&
-        order.get &&
-        (order.get("customFields") || order.get("customfields"))) ||
-      [];
-
-    if (!Array.isArray(list)) {
-      return [];
-    }
-
-    return list
-      .map(cloneCustomField)
-      .filter(function (field) {
-        return !!field.id;
-      });
-  }
-
-  function getCustomFieldMap(order) {
-    var fields = getOrderCustomFields(order);
-    var fieldMap = {};
-
-    fields.forEach(function (field) {
-      fieldMap[field.id] = field;
-    });
-
-    return fieldMap;
-  }
-
-  function setCustomField(fieldMap, fieldId, value) {
-    if (!fieldId) return;
-
-    fieldMap[fieldId] = {
-      id: fieldId,
-      value: value
-    };
-  }
-
-  function buildEtaDate(transitDays) {
-    var days = asNumber(transitDays, NaN);
-    if (!isFinite(days) || days <= 0) {
-      return "";
-    }
-
-    var eta = new Date();
-    eta.setDate(eta.getDate() + days);
-
-    return eta.toISOString().split("T")[0];
-  }
-
-  function buildOriginSummary(origins) {
-    if (!Array.isArray(origins) || !origins.length) {
-      return "";
-    }
-
-    return origins
-      .map(function (origin) {
-        var label =
-          origin.city ||
-          origin.zip ||
-          origin.originKey ||
-          origin.LocationCode ||
-          "Origin";
-
-        return label + ": $" + asNumber(origin.cost, 0).toFixed(2);
-      })
-      .join("\n");
-  }
-
-  function truncateQuoteJson(value) {
-    var json = asString(value);
-    return json.length > 3800 ? json.slice(0, 3800) : json;
-  }
-
-  function buildPacejetCustomFields(order, payload) {
-    var fieldMap = getCustomFieldMap(order);
-    var origins = normalizeOrigins(payload && payload.origins);
-    var transitDays = payload.transitDays;
-    var etaDate = buildEtaDate(transitDays);
-    var originCount = origins.length;
-    var originKey = (origins[0] && origins[0].originKey) || "";
-    var originSummary = buildOriginSummary(origins);
-    var accessorials = normalizeAccessorialSelection(
-      payload && (payload.accessorialSelection || payload.accessorials)
-    );
-    var quoteJson = truncateQuoteJson(JSON.stringify(payload));
-
-    setCustomField(
-      fieldMap,
-      "custbody_rdt_pacejet_amount",
-      asNumber(payload.cost, 0)
-    );
-    setCustomField(
-      fieldMap,
-      "custbody_rdt_pj_carrier_name",
-      asString(payload.carrier || "")
-    );
-    setCustomField(
-      fieldMap,
-      "custbody_rdt_pj_service_name",
-      asString(payload.service || "")
-    );
-    setCustomField(
-      fieldMap,
-      "custbody_rdt_pj_accessorial_total",
-      asNumber(payload.accessorialDelta, 0)
-    );
-    setCustomField(fieldMap, "custbody_rdt_pj_quote_json", quoteJson);
-
-    if (transitDays !== null && transitDays !== undefined && transitDays !== "") {
-      setCustomField(
-        fieldMap,
-        "custbody_rdt_pj_transit_days",
-        asNumber(transitDays, 0)
-      );
-    }
-
-    if (etaDate) {
-      setCustomField(fieldMap, "custbody_rdt_pj_est_arrival_date", etaDate);
-    }
-
-    if (originCount) {
-      setCustomField(fieldMap, "custbody_rdt_pj_origin_count", originCount);
-    }
-
-    if (originKey) {
-      setCustomField(fieldMap, "custbody_rdt_pj_origin_key", originKey);
-    }
-
-    if (originSummary) {
-      setCustomField(fieldMap, "custbody_rdt_pj_origin_summary", originSummary);
-    }
-
-    Object.keys(ACCESSORIAL_FIELD_MAP).forEach(function (key) {
-      setCustomField(
-        fieldMap,
-        ACCESSORIAL_FIELD_MAP[key],
-        asCheckboxValue(accessorials[key])
-      );
-    });
-
-    return Object.keys(fieldMap).map(function (fieldId) {
-      return fieldMap[fieldId];
-    });
   }
 
   function fetchOrderSummary(order) {
@@ -283,27 +92,6 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       });
   }
 
-  function applyServiceResponseToOrder(order, response) {
-    if (!order || !order.set || !response) return;
-
-    var updates = {};
-    var customFields = response.customfields || response.customFields;
-
-    if (response.shipmethod) {
-      updates.shipmethod = response.shipmethod;
-    }
-
-    if (response.summary) {
-      updates.summary = response.summary;
-    }
-
-    if (Array.isArray(customFields)) {
-      updates.customfields = customFields;
-    }
-
-    order.set(updates);
-  }
-
   function applyPacejetSelectionToCart(order, payload) {
     if (!order) {
       return jQuery
@@ -312,51 +100,39 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         .promise();
     }
 
-    var normalizedOrigins = normalizeOrigins(payload && payload.origins);
-    var normalizedAccessorialSelection = normalizeAccessorialSelection(
-      payload && payload.accessorialSelection
-    );
-    var customFields = normalizeCustomFields(
-      buildPacejetCustomFields(order, {
-        shipCode: payload && payload.shipCode,
-        cost: payload && payload.cost,
-        carrier: payload && payload.carrier,
-        service: payload && payload.service,
-        transitDays: payload && payload.transitDays,
-        origins: normalizedOrigins,
-        accessorialSelection: normalizedAccessorialSelection
-      })
-    );
+    var shipmethodId = getShipmethodId(payload && payload.shipCode);
 
-    var liveOrderPayload = buildSafeLiveOrderPayload({
-      shipmethod: payload && payload.shipCode,
-      customfields: customFields
+    if (!shipmethodId) {
+      return jQuery
+        .Deferred()
+        .reject(new Error("shipmethod is required"))
+        .promise();
+    }
+
+    logSummarySnapshot(order, "before-native-save", {
+      selectedShipCode: shipmethodId,
+      selectedCost: payload && payload.cost
     });
 
-    logSummarySnapshot(order, "before-liveorder-save", {
-      servicePayload: liveOrderPayload
-    });
-    console.log(
-      "[Pacejet] LiveOrder payload",
-      JSON.stringify(liveOrderPayload, null, 2)
-    );
+    order.set("shipmethod", shipmethodId);
 
-    return PacejetService
-      .applyRateToCart(liveOrderPayload)
-      .then(function (resp) {
-        applyServiceResponseToOrder(order, resp || {});
-
-        logSummarySnapshot(order, "after-liveorder-save", {
-          responseKeys: resp ? Object.keys(resp) : [],
-          selectedShipCode: getShipmethodId(payload && payload.shipCode)
-        });
-
-        return fetchOrderSummary(order).then(function () {
-          return order;
-        });
+    return order.save().then(function () {
+      logSummarySnapshot(order, "after-native-save", {
+        selectedShipCode: shipmethodId
       });
-  }
 
+      return fetchOrderSummary(order).then(function () {
+        syncSelectionFromOrder(order);
+        order.trigger("change:summary", order, order.get("summary"));
+
+        if (PacejetSummary && PacejetSummary.renderSummaryUI) {
+          PacejetSummary.renderSummaryUI(order);
+        }
+
+        return order;
+      });
+    });
+  }
   function applyCarrierAccessorialRules(payload) {
     if (!payload) return;
 
@@ -390,14 +166,6 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     }
   }
 
-  function getCustomFieldValue(order, id) {
-    var cfs = (order && order.get && order.get("customFields")) || [];
-    for (var i = 0; i < cfs.length; i++) {
-      if (cfs[i] && cfs[i].id === id) return cfs[i].value;
-    }
-    return null;
-  }
-
   function logSummarySnapshot(order, stage, extra) {
     if (!order || !order.get) return;
 
@@ -415,10 +183,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       taxamount: summary.taxamount,
       total: summary.total || summary.totalAmount || summary.totalamount,
       subtotal: summary.subtotal,
-      custbody_rdt_pacejet_amount: getCustomFieldValue(
-        order,
-        "custbody_rdt_pacejet_amount"
-      ),
+      pacejetSelectedRate: PacejetState.getSelectedRate(),
       timestamp: new Date().toISOString()
     };
 
@@ -427,33 +192,8 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     console.log("[Pacejet][TaxDebug] summary snapshot", snapshot);
   }
 
-  function paintSummaryWhenReady(order, reason) {
-    if (!order) return;
-
-    var tries = 0;
-    var max = 25;
-
-    (function tick() {
-      tries++;
-
-      if (
-        $(".order-wizard-cart-summary-container, .order-wizard-cart-summary")
-          .length
-      ) {
-        PacejetSummary.enforcePacejetSummary(order);
-        PacejetSummary.renderSummaryUI(order);
-        return;
-      }
-
-      if (tries < max) {
-        setTimeout(tick, 100);
-      } else {
-        console.warn("[Pacejet] Summary paint timeout:", reason);
-      }
-    })();
-  }
-
   function clearSelectedRate() {
+    PacejetState.clearSelectedRate();
     state.selection.shipCode = null;
     state.selection.cost = null;
     state.selection.carrier = null;
@@ -482,38 +222,35 @@ define("RDT.Pacejet.Checkout.Module.V2", [
   }
 
   function syncSelectionFromOrder(order) {
+    var selectedRate;
     if (!order || !order.get) return;
 
     var shipmethodId = getShipmethodId(order.get("shipmethod"));
     if (!shipmethodId) {
+      PacejetState.clearSelectedRate();
       return;
     }
 
     state.selection.shipCode = shipmethodId;
 
-    var pacejetAmount = Number(
-      getCustomFieldValue(order, "custbody_rdt_pacejet_amount") || 0
-    );
-    if (pacejetAmount > 0) {
-      state.selection.cost = pacejetAmount;
-    }
+    selectedRate = PacejetState.getSelectedRate();
 
-    var carrier = getCustomFieldValue(order, "custbody_rdt_pj_carrier_name");
-    var service = getCustomFieldValue(order, "custbody_rdt_pj_service_name");
-    var transitDays = getCustomFieldValue(
-      order,
-      "custbody_rdt_pj_transit_days"
-    );
-
-    if (carrier) state.selection.carrier = carrier;
-    if (service) state.selection.service = service;
     if (
-      transitDays !== null &&
-      transitDays !== undefined &&
-      transitDays !== ""
+      !selectedRate ||
+      getShipmethodId(selectedRate.shipmethod) !== shipmethodId
     ) {
-      state.selection.transitDays = transitDays;
+      PacejetState.clearSelectedRate();
+      state.selection.cost = null;
+      state.selection.carrier = null;
+      state.selection.service = null;
+      state.selection.transitDays = null;
+      return;
     }
+
+    state.selection.cost = asNumber(selectedRate.amount, 0);
+    state.selection.carrier = selectedRate.carrier || null;
+    state.selection.service = selectedRate.service || null;
+    state.selection.transitDays = selectedRate.transitDays || null;
   }
 
   PacejetUI.onSelect(function (payload) {
@@ -550,6 +287,25 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
     applyCarrierAccessorialRules(payload);
 
+    PacejetState.setSelectedRate({
+      shipmethod: payload.shipCode,
+      amount: asNumber(payload.cost, 0),
+      carrier: payload.carrier || "",
+      service: payload.service || "",
+      transitDays:
+        payload.transitDays === null || payload.transitDays === undefined
+          ? ""
+          : payload.transitDays,
+      quoteJson: JSON.stringify({
+        shipmethod: payload.shipCode,
+        amount: asNumber(payload.cost, 0),
+        carrier: payload.carrier || "",
+        service: payload.service || "",
+        transitDays: payload.transitDays,
+        origins: normalizeOrigins(payload.origins)
+      })
+    });
+
     state.selection.shipCode = payload.shipCode;
     state.selection.cost = payload.cost;
     state.selection.carrier = payload.carrier;
@@ -581,25 +337,30 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       accessorials: normalizeAccessorialArray(payload.accessorials),
       accessorialSelection: normalizeAccessorialSelection(
         state.selection.accessorials
-      )
+      ),
+      quoteJson: JSON.stringify({
+        shipmethod: payload.shipCode,
+        amount: asNumber(payload.cost, 0),
+        carrier: payload.carrier || "",
+        service: payload.service || "",
+        transitDays: payload.transitDays,
+        origins: normalizeOrigins(payload.origins)
+      })
     })
       .then(function () {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
 
-        console.log("[Pacejet] LiveOrder applied successfully");
-
-        syncSelectionFromOrder(order);
-
-        PacejetSummary.enforcePacejetSummary(order);
-        PacejetSummary.renderSummaryUI(order);
-        paintSummaryWhenReady(order, "after-liveorder-save");
-        order.trigger("change:summary", order, order.get("summary"));
+        console.log("[Pacejet] Native shipmethod save applied successfully");
 
         waitForHostThenRefresh(order);
       })
       .fail(function (err) {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
-        console.error("[Pacejet] LiveOrder error", err && err.responseText ? err.responseText : err);
+        clearSelectedRate();
+        console.error(
+          "[Pacejet] LiveOrder error",
+          err && err.responseText ? err.responseText : err
+        );
       })
       .always(function () {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
@@ -670,9 +431,6 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         }
 
         $host.css("min-height", "");
-
-        PacejetSummary.enforcePacejetSummary(order);
-        PacejetSummary.renderSummaryUI(order);
       })
       .fail(function () {
         state.flags.ratesLoading = false;

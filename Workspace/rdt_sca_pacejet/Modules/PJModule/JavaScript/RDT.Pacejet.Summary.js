@@ -1,19 +1,59 @@
 /// <amd-module name="RDT.Pacejet.Summary"/>
 
-define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
+define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"], function (
   jQuery,
-  PacejetState
+  PacejetState,
+  LiveOrderModel
 ) {
   "use strict";
 
   var $ = jQuery;
   var SUMMARY_REPAINT_TIMER = null;
+  var SUMMARY_OVERRIDE_MOUNTED = false;
 
   // --------------------------------------------
   // Helpers
   // --------------------------------------------
   function num(v) {
     return Number(String(v || "").replace(/[^0-9.\-]/g, "")) || 0;
+  }
+
+  function asNumber(value, fallback) {
+    var number = Number(value);
+    return isFinite(number) ? number : fallback || 0;
+  }
+
+  function cloneObject(source) {
+    var key;
+    var copy = {};
+    var data = source && typeof source === "object" ? source : {};
+
+    for (key in data) {
+      if (data.hasOwnProperty(key)) {
+        copy[key] = data[key];
+      }
+    }
+
+    return copy;
+  }
+
+  function getShipmethodId(shipmethod) {
+    if (shipmethod === null || shipmethod === undefined || shipmethod === "") {
+      return "";
+    }
+
+    if (typeof shipmethod === "object") {
+      return String(
+        shipmethod.internalid ||
+          shipmethod.internalId ||
+          shipmethod.id ||
+          shipmethod.shipmethod ||
+          shipmethod.value ||
+          ""
+      );
+    }
+
+    return String(shipmethod);
   }
 
   function fmtMoney(n) {
@@ -44,6 +84,156 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
     }
 
     return order.get("summary") || {};
+  }
+
+  function getSummaryValue(summary, keys) {
+    var i;
+
+    for (i = 0; i < keys.length; i += 1) {
+      if (summary[keys[i]] !== undefined && summary[keys[i]] !== null) {
+        return summary[keys[i]];
+      }
+    }
+
+    return 0;
+  }
+
+  function buildOverriddenSummary(order, sourceSummary) {
+    var selectedRate = PacejetState.getSelectedRate
+      ? PacejetState.getSelectedRate()
+      : null;
+    var summary = cloneObject(sourceSummary);
+    var currentShipmethod = getShipmethodId(
+      order && typeof order.get === "function" ? order.get("shipmethod") : ""
+    );
+    var subtotal;
+    var nativeTax;
+    var nativeShipping;
+    var effectiveTaxRate;
+    var shipping;
+    var taxTotal;
+    var total;
+
+    if (
+      !selectedRate ||
+      !selectedRate.shipmethod ||
+      getShipmethodId(selectedRate.shipmethod) !== currentShipmethod
+    ) {
+      return summary;
+    }
+
+    subtotal = asNumber(getSummaryValue(summary, ["subtotal"]), 0);
+    nativeTax = asNumber(
+      getSummaryValue(summary, [
+        "taxtotal",
+        "taxTotal",
+        "tax",
+        "taxamount",
+        "taxAmount"
+      ]),
+      0
+    );
+    nativeShipping = asNumber(
+      getSummaryValue(summary, [
+        "shipping",
+        "shippingcost",
+        "shippingCost",
+        "estimatedshipping",
+        "handlingcost"
+      ]),
+      0
+    );
+    effectiveTaxRate = subtotal > 0 ? nativeTax / subtotal : 0;
+    shipping = asNumber(
+      selectedRate.amount !== undefined ? selectedRate.amount : nativeShipping,
+      nativeShipping
+    );
+    taxTotal = +((subtotal + shipping) * effectiveTaxRate).toFixed(2);
+    total = +(subtotal + shipping + taxTotal).toFixed(2);
+
+    summary.shipping = shipping;
+    summary.shippingcost = shipping;
+    summary.shippingCost = shipping;
+    summary.estimatedshipping = shipping;
+    summary.handlingcost = shipping;
+    summary.tax = taxTotal;
+    summary.taxtotal = taxTotal;
+    summary.taxTotal = taxTotal;
+    summary.taxamount = taxTotal;
+    summary.taxAmount = taxTotal;
+    summary.total = total;
+    summary.totalamount = total;
+    summary.totalAmount = total;
+    summary.order_total = total;
+
+    return summary;
+  }
+
+  function getPatchTarget() {
+    var instance;
+
+    try {
+      instance =
+        LiveOrderModel && typeof LiveOrderModel.getInstance === "function"
+          ? LiveOrderModel.getInstance()
+          : null;
+    } catch (_e) {
+      instance = null;
+    }
+
+    if (
+      instance &&
+      instance.constructor &&
+      instance.constructor.prototype &&
+      typeof instance.constructor.prototype.get === "function"
+    ) {
+      return instance.constructor.prototype;
+    }
+
+    if (
+      LiveOrderModel &&
+      LiveOrderModel.prototype &&
+      typeof LiveOrderModel.prototype.get === "function"
+    ) {
+      return LiveOrderModel.prototype;
+    }
+
+    return instance && typeof instance.get === "function" ? instance : null;
+  }
+
+  function mountToApp() {
+    var target;
+    var originalGet;
+
+    if (SUMMARY_OVERRIDE_MOUNTED) {
+      return;
+    }
+
+    target = getPatchTarget();
+
+    if (!target || typeof target.get !== "function") {
+      return;
+    }
+
+    originalGet = target.get;
+
+    if (originalGet.__rdtPacejetSummaryOverride) {
+      SUMMARY_OVERRIDE_MOUNTED = true;
+      return;
+    }
+
+    target.get = function get(attr) {
+      var value = originalGet.apply(this, arguments);
+
+      if (attr !== "summary") {
+        return value;
+      }
+
+      return buildOverriddenSummary(this, value);
+    };
+
+    target.get.__rdtPacejetSummaryOverride = true;
+    SUMMARY_OVERRIDE_MOUNTED = true;
   }
 
   function getCustomFieldValue(order, fieldId) {
@@ -130,8 +320,6 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
     if (data) {
       payload.computed = data;
     }
-
-    console.log("[Pacejet][SummaryDebug]", payload);
   }
 
   function getSummary(order) {
@@ -475,9 +663,7 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
       ".order-wizard-cart-summary-taxes .order-wizard-cart-summary-grid-right, " +
       ".order-wizard-cart-summary-estimated-tax .order-wizard-cart-summary-grid-right, " +
       ".order-wizard-cart-summary-tax-cost-formatted";
-    var $taxEls = $(
-      nativeTaxSelector
-    );
+    var $taxEls = $(nativeTaxSelector);
     var hasNativeTaxBlock = $(nativeTaxSelector).length > 0;
     if (!$taxEls.length) {
       var $labels = $(
@@ -570,6 +756,7 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State"], function (
   }
 
   return {
+    mountToApp: mountToApp,
     getSummary: getSummary,
     getShipping: getShipping,
 

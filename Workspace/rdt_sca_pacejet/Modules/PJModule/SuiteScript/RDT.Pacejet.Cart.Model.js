@@ -26,61 +26,43 @@ define("RDT.Pacejet.Cart.Model", [
       : target[methodName]();
   }
 
-  function updateLiveOrder(liveOrder, payload) {
-    var orderModel =
-      liveOrder && typeof liveOrder.update === "function"
+  function ensureLiveOrderMethod(liveOrder, methodName) {
+    var target =
+      liveOrder && typeof liveOrder[methodName] === "function"
         ? liveOrder
-        : typeof LiveOrderModel.update === "function"
+        : typeof LiveOrderModel[methodName] === "function"
           ? LiveOrderModel
           : null;
 
-    if (!orderModel) {
-      throw new Error("LiveOrder.update is unavailable");
+    if (!target) {
+      throw new Error("LiveOrder." + methodName + " is unavailable");
     }
 
-    orderModel.update({
-      shipmethod: ""
-    });
-
-    orderModel.update({
-      shipmethod: payload.shipmethod
-    });
-
-    return callModelMethod(orderModel, "get") || {};
+    return target;
   }
 
-  function applyCustomFields(liveOrder, customFieldsInput) {
-    if (
-      !liveOrder ||
-      typeof liveOrder.setTransactionBodyField !== "function" ||
-      !Array.isArray(customFieldsInput)
-    ) {
-      return;
-    }
+  function safeUpdate(liveOrder, payload) {
+    return ensureLiveOrderMethod(liveOrder, "update").update(payload || {});
+  }
 
-    customFieldsInput.forEach(function (field) {
-      if (!field || !field.id) {
-        return;
-      }
+  function safeGet(liveOrder) {
+    var order = callModelMethod(ensureLiveOrderMethod(liveOrder, "get"), "get");
 
-      liveOrder.setTransactionBodyField({
-        fieldId: field.id,
-        type: "string",
-        value: String(field.value)
-      });
-    });
+    return order && typeof order === "object" ? order : {};
   }
 
   function sanitizeRequest(request) {
     var data = request && typeof request === "object" ? request : {};
+    var normalizedPayload = CartHelper.normalizePayload(data);
 
-    data.customfields = Array.isArray(data.customfields)
-      ? data.customfields
-      : Array.isArray(data.customFields)
-        ? data.customFields
-        : [];
-
-    return data;
+    return {
+      shipmethod: normalizedPayload.shipmethod,
+      pacejetAmount: normalizedPayload.pacejetAmount,
+      carrier: normalizedPayload.carrier,
+      service: normalizedPayload.service,
+      transitDays: normalizedPayload.transitDays,
+      quoteJson: normalizedPayload.quoteJson
+    };
   }
 
   function applyRateToCart(request) {
@@ -91,42 +73,28 @@ define("RDT.Pacejet.Cart.Model", [
     CartHelper.validatePayload(payload);
 
     payload.shipmethod = CartHelper.normalizeShipmethod(payload.shipmethod);
-    payload.customFields = payload.customFields || [];
     payload.pacejetAmount = Number(payload.pacejetAmount) || 0;
 
-    updatedOrder = updateLiveOrder(liveOrder, payload);
+    safeUpdate(liveOrder, {
+      shipmethod: ""
+    });
 
-    if (typeof liveOrder.update === "function") {
-      liveOrder.update({});
-    }
+    safeGet(liveOrder);
 
-    if (payload.customFields.length) {
-      applyCustomFields(liveOrder, payload.customFields);
-    }
+    safeUpdate(liveOrder, {
+      shipmethod: payload.shipmethod
+    });
 
-    if (typeof liveOrder.update === "function") {
-      liveOrder.update({});
-    }
+    safeGet(liveOrder);
 
-    updatedOrder = callModelMethod(liveOrder, "get") || updatedOrder;
-
-    var summaryOverrides = {
-      shippingcost: payload.pacejetAmount,
-      shippingCost: payload.pacejetAmount,
-      shipping: payload.pacejetAmount,
-      estimatedshipping: payload.pacejetAmount
-    };
-
-    var normalizedSummary = CartHelper.normalizeSummary(
-      updatedOrder,
-      summaryOverrides
-    );
+    safeUpdate(liveOrder, {});
+    updatedOrder = safeGet(liveOrder);
 
     return {
       ok: true,
       shipmethod: payload.shipmethod,
-      summary: normalizedSummary,
-      customfields: payload.customFields
+      pacejetAmount: payload.pacejetAmount,
+      summary: CartHelper.normalizeSummary(updatedOrder)
     };
   }
 
