@@ -17,6 +17,10 @@
 	--rdt-border: #e5e7eb;
 }
 
+.order-wizard-cart-summary-grid-float:has(.order-wizard-cart-summary-handling-cost-formatted) {
+	display: none;
+}
+
 /* ============================================
    Shipping Rates Button
    ============================================ */
