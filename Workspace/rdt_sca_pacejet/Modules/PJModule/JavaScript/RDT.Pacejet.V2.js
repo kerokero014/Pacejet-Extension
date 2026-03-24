@@ -13,6 +13,7 @@ define("RDT.Pacejet.V2", [
 
   var $ = jQuery;
   var LAYOUT_AFTER_APPEND_HANDLER = null;
+  var ROUTE_SYNC_TIMER = null;
 
   function getOrder() {
     try {
@@ -28,12 +29,38 @@ define("RDT.Pacejet.V2", [
     return (window.location.hash || "").toLowerCase().indexOf("shipping/address") !== -1;
   }
 
+  function isPacejetSummaryRoute() {
+    var hash = (window.location.hash || "").toLowerCase();
+
+    return (
+      hash.indexOf("shipping/address") !== -1 ||
+      hash.indexOf("billing") !== -1 ||
+      hash.indexOf("review") !== -1 ||
+      hash.indexOf("confirmation") !== -1
+    );
+  }
+
   function maybeRun(order) {
     if (!order) return;
 
     if (isShippingStep()) {
       PacejetCheckout.run();
+      return;
     }
+
+    if (isPacejetSummaryRoute() && PacejetCheckout.syncCurrentRoute) {
+      PacejetCheckout.syncCurrentRoute();
+    }
+  }
+
+  function scheduleMaybeRun(order) {
+    if (ROUTE_SYNC_TIMER) {
+      clearTimeout(ROUTE_SYNC_TIMER);
+    }
+
+    ROUTE_SYNC_TIMER = setTimeout(function () {
+      maybeRun(order);
+    }, 0);
   }
 
   function mountToApp(container) {
@@ -46,7 +73,7 @@ define("RDT.Pacejet.V2", [
 
     if (!LAYOUT_AFTER_APPEND_HANDLER) {
       LAYOUT_AFTER_APPEND_HANDLER = function () {
-        maybeRun(order);
+        scheduleMaybeRun(order);
       };
     }
 
@@ -59,12 +86,10 @@ define("RDT.Pacejet.V2", [
 
     $(window).off("hashchange.rdtPacejetV2");
     $(window).on("hashchange.rdtPacejetV2", function () {
-      setTimeout(function () {
-        maybeRun(order);
-      }, 0);
+      scheduleMaybeRun(order);
     });
 
-    maybeRun(order);
+    scheduleMaybeRun(order);
   }
 
   return {

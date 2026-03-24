@@ -138,8 +138,7 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
         "shipping",
         "shippingcost",
         "shippingCost",
-        "estimatedshipping",
-        "handlingcost"
+        "estimatedshipping"
       ]),
       0
     );
@@ -155,7 +154,11 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     summary.shippingcost = shipping;
     summary.shippingCost = shipping;
     summary.estimatedshipping = shipping;
-    summary.handlingcost = shipping;
+    summary.handlingcost = 0;
+    summary.handlingCost = 0;
+    summary.showHandlingCost = false;
+    summary.handlingcost_formatted = "";
+    summary.handlingCost_formatted = "";
     summary.tax = taxTotal;
     summary.taxtotal = taxTotal;
     summary.taxTotal = taxTotal;

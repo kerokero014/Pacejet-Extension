@@ -1,6 +1,6 @@
 /// <amd-module name="RDT.Pacejet.UI"/>
 
-define("RDT.Pacejet.UI", ["jQuery"], function (jQuery) {
+define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, PacejetState) {
   "use strict";
 
   var $ = jQuery;
@@ -488,12 +488,82 @@ define("RDT.Pacejet.UI", ["jQuery"], function (jQuery) {
     }
   }
 
+  function isReviewStep() {
+    return (window.location.hash || "").toLowerCase().indexOf("review") !== -1;
+  }
+
+  function clearReviewSelection() {
+    $(".rdt-mui-shipping-card").remove();
+    $(
+      ".order-wizard-showshipments-module-shipping-details-method, " +
+      ".order-wizard-showshipments-actionable-module-shipping-details-method"
+    )
+      .removeClass("rdt-mui-native-hidden")
+      .find("select")
+      .removeClass("rdt-mui-native-hidden");
+  }
+
+  function buildReviewCard(rate) {
+    var carrier = rate.carrier || "Pacejet";
+    var service = rate.service || "Selected shipping service";
+    var transitDays = getEta(rate);
+    var chipText = transitDays ? carrier + " - " + transitDays : carrier;
+    var $card = $("<div/>").addClass("rdt-mui-shipping-card");
+    var $left = $("<div/>").addClass("rdt-mui-shipping-left");
+    var $changeBtn = $("<button/>", {
+      type: "button",
+      text: "Change"
+    }).addClass("rdt-mui-change-btn");
+
+    $left.append($("<span/>").addClass("rdt-mui-chip").text(chipText));
+    $left.append($("<div/>").addClass("rdt-mui-service").text(service));
+    $card.append($left);
+    $card.append($("<div/>").addClass("rdt-mui-price").text(fmtMoney(rate.amount)));
+    $card.append($changeBtn);
+
+    $changeBtn.on("click", function (e) {
+      e.preventDefault();
+      window.location.hash = "#shipping/address";
+    });
+
+    return $card;
+  }
+
+  function renderReviewSelection() {
+    var selectedRate = PacejetState && PacejetState.getSelectedRate
+      ? PacejetState.getSelectedRate()
+      : null;
+    var $method = $(
+      ".order-wizard-showshipments-module-shipping-details-method, " +
+      ".order-wizard-showshipments-actionable-module-shipping-details-method"
+    ).first();
+
+    if (!isReviewStep() || !$method.length || !selectedRate || !selectedRate.shipmethod) {
+      clearReviewSelection();
+      return;
+    }
+
+    $method.addClass("rdt-mui-native-hidden");
+    $method.find("select").addClass("rdt-mui-native-hidden");
+
+    var $existing = $method.siblings(".rdt-mui-shipping-card").first();
+    var $card = buildReviewCard(selectedRate);
+
+    if ($existing.length) {
+      $existing.replaceWith($card);
+    } else {
+      $method.after($card);
+    }
+  }
+
   return {
     render: render,
     showLoading: showLoading,
     clear: clear,
     onSelect: onSelect,
     updateAccessorials: updateAccessorials,
-    setContinueButtonState: setContinueButtonState
+    setContinueButtonState: setContinueButtonState,
+    renderReviewSelection: renderReviewSelection,
+    clearReviewSelection: clearReviewSelection
   };
 });
