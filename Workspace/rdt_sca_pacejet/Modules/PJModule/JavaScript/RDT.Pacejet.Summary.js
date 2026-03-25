@@ -10,6 +10,8 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
   var $ = jQuery;
   var SUMMARY_REPAINT_TIMER = null;
   var SUMMARY_OVERRIDE_MOUNTED = false;
+  var SUMMARY_OVERRIDE_FLAG = "_rdtPacejetSummaryApplied";
+  var SUMMARY_OVERRIDE_SHIPPING_KEY = "_rdtPacejetSummaryShipping";
 
   // --------------------------------------------
   // Helpers
@@ -294,6 +296,14 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
       return summary;
     }
 
+    if (
+      summary[SUMMARY_OVERRIDE_FLAG] &&
+      asNumber(summary[SUMMARY_OVERRIDE_SHIPPING_KEY], null) ===
+        asNumber(resolvedShipping.amount, 0)
+    ) {
+      return summary;
+    }
+
     subtotal = asNumber(getSummaryValue(summary, ["subtotal"]), 0);
     nativeTax = asNumber(
       getSummaryValue(summary, [
@@ -328,6 +338,8 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     summary.totalamount = total;
     summary.totalAmount = total;
     summary.order_total = total;
+    summary[SUMMARY_OVERRIDE_FLAG] = true;
+    summary[SUMMARY_OVERRIDE_SHIPPING_KEY] = shipping;
 
     return summary;
   }
