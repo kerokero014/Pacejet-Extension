@@ -101,12 +101,14 @@
    ============================================ */
 
 .rdt-pj-recalc-btn--dirty,
-.rdt-pj-rates-toggle-btn--dirty {
+.rdt-pj-rates-toggle-btn--dirty,
+.rdt-pj-rates-toggle-btn--pulse {
 	position: relative;
 }
 
 .rdt-pj-recalc-btn--dirty::after,
-.rdt-pj-rates-toggle-btn--dirty::after {
+.rdt-pj-rates-toggle-btn--dirty::after,
+.rdt-pj-rates-toggle-btn--pulse::after {
 	content: "";
 	position: absolute;
 	inset: -2px;
@@ -137,28 +139,52 @@
 /* Container now flows horizontally */
 .rdt-pj-accessorials {
 	display: flex;
-	flex-wrap: wrap;
-	gap: 8px;
+	flex-direction: column;
+	gap: 12px;
 }
 
-/* Each accessorial = pill */
+.rdt-pj-accessorials-none {
+	display: block;
+}
+
+.rdt-pj-accessorials-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 10px;
+}
+
+/* Each accessorial = card/pill hybrid */
 .rdt-pj-accessorial {
 	display: inline-flex;
 	align-items: center;
 	gap: 8px;
-	padding: 8px 12px;
-	border-radius: 2px;
+	padding: 10px 12px;
+	border-radius: 12px;
 	border: 1px solid #e5e7eb;
-	background: #fafafa;
+	background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
 	font-size: 13px;
 	cursor: pointer;
 	transition: background-color 0.15s ease, border-color 0.15s ease,
 		box-shadow 0.15s ease, transform 0.05s ease;
 }
 
+.rdt-pj-accessorial--none {
+	display: flex;
+	width: 100%;
+	padding: 12px 14px;
+	border-color: rgba(37, 99, 235, 0.28);
+	background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
 .rdt-pj-accessorial:hover {
 	background: #f4f7ff;
 	border-color: rgba(37, 99, 235, 0.35);
+}
+
+.rdt-pj-accessorial--none:hover {
+	background: linear-gradient(180deg, #dbeafe 0%, #bfdbfe 100%);
+	border-color: rgba(37, 99, 235, 0.45);
 }
 
 /* Checkbox */
@@ -173,10 +199,11 @@
 /* Label */
 .rdt-pj-accessorial label {
 	cursor: pointer;
-	white-space: nowrap;
+	white-space: normal;
 	user-select: none;
 	color: #111827;
 	margin-bottom: 0 !important;
+	line-height: 1.4;
 }
 
 /* Selected pill */
@@ -192,6 +219,29 @@
 .rdt-pj-accessorial input[type="checkbox"]:checked~label,
 .rdt-pj-accessorial input[type="checkbox"]:checked {
 	color: #1d4ed8;
+}
+
+.rdt-pj-accessorial--none input[type="checkbox"]:checked+label {
+	font-weight: 700;
+}
+
+.rdt-pj-accessorial--disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+	background: linear-gradient(180deg, #f9fafb 0%, #f3f4f6 100%);
+	border-color: #e5e7eb;
+	box-shadow: none;
+}
+
+.rdt-pj-accessorial--disabled:hover {
+	background: linear-gradient(180deg, #f9fafb 0%, #f3f4f6 100%);
+	border-color: #e5e7eb;
+	transform: none;
+}
+
+.rdt-pj-accessorial--disabled input[type="checkbox"],
+.rdt-pj-accessorial--disabled label {
+	cursor: not-allowed;
 }
 
 /* Focus (keyboard users) */

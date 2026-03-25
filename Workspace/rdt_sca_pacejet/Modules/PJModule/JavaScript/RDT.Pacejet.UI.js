@@ -4,8 +4,14 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
   "use strict";
 
   var $ = jQuery;
+  var NONE_ACCESSORIAL_ID = "none_additional_fees_may_app";
 
   var ACCESSORIALS = [
+    {
+      id: NONE_ACCESSORIAL_ID,
+      label:
+        "NONE - Additional fees may be charged if accessorials are needed at delivery and not prearranged."
+    },
     { id: "driver_call", label: "Driver Call Ahead" },
     { id: "job_site", label: "Job Site Delivery" },
     { id: "lift_gate", label: "Lift Gate" },
@@ -23,6 +29,53 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
   ACCESSORIALS.forEach(function (a) {
     accessorialState[a.id] = false;
   });
+
+  function getAllowedAccessorials() {
+    var state = PacejetState && PacejetState.get ? PacejetState.get() : null;
+    return state && state.allowedAccessorials ? state.allowedAccessorials : null;
+  }
+
+  function applyAccessorialSelection(accessorialId, checked) {
+    accessorialState[accessorialId] = checked;
+
+    if (accessorialId === NONE_ACCESSORIAL_ID && checked) {
+      ACCESSORIALS.forEach(function (a) {
+        if (a.id !== NONE_ACCESSORIAL_ID) {
+          accessorialState[a.id] = false;
+        }
+      });
+      return;
+    }
+
+    if (accessorialId !== NONE_ACCESSORIAL_ID && checked) {
+      accessorialState[NONE_ACCESSORIAL_ID] = false;
+    }
+  }
+
+  function isAccessorialDisabled(accessorialId, allowedAccessorials) {
+    if (accessorialId !== NONE_ACCESSORIAL_ID && accessorialState[NONE_ACCESSORIAL_ID]) {
+      return true;
+    }
+
+    if (
+      allowedAccessorials &&
+      accessorialId !== NONE_ACCESSORIAL_ID &&
+      allowedAccessorials[accessorialId] === false
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  function syncRatesButtonState($btn) {
+    if (!$btn || !$btn.length) return;
+
+    $btn.toggleClass(
+      "rdt-pj-rates-toggle-btn--pulse",
+      !!accessorialState[NONE_ACCESSORIAL_ID]
+    );
+  }
 
   function hasDropShipInCart(state) {
     var snap = state && state.cache && state.cache.lastSnapshot;
@@ -55,6 +108,9 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
 
   function renderAccessorials() {
     var $box = $("<div/>").addClass("rdt-pj-accessorials");
+    var allowedAccessorials = getAllowedAccessorials();
+    var $noneGroup = $("<div/>").addClass("rdt-pj-accessorials-none");
+    var $otherGroup = $("<div/>").addClass("rdt-pj-accessorials-grid");
 
     $box.append(
       $("<div/>")
@@ -66,32 +122,53 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
       var id = "pj-acc-" + a.id;
 
       var $row = $("<div/>").addClass("rdt-pj-accessorial");
+      if (a.id === NONE_ACCESSORIAL_ID) {
+        $row.addClass("rdt-pj-accessorial--none");
+      }
+
+      var disabled = isAccessorialDisabled(a.id, allowedAccessorials);
       var $chk = $("<input/>", {
         type: "checkbox",
         id: id,
         "data-id": a.id,
-        checked: !!accessorialState[a.id]
+        checked: !!accessorialState[a.id],
+        disabled: disabled
       });
       var $label = $("<label/>", {
         for: id,
         text: a.label
       });
 
+      if (disabled) {
+        $row.addClass("rdt-pj-accessorial--disabled");
+        $label.attr("aria-disabled", "true");
+      }
+
       $chk.on("change", function () {
-        accessorialState[a.id] = this.checked;
+        applyAccessorialSelection(a.id, this.checked);
+
+        $box.replaceWith(renderAccessorials());
 
         emitSelect({
           accessorials: jQuery.extend({}, accessorialState)
         });
 
-        $(".rdt-pj-rates-toggle-btn")
-          .addClass("rdt-pj-rates-toggle-btn--dirty")
-          .prop("disabled", false);
+        syncRatesButtonState(
+          $(".rdt-pj-rates-toggle-btn")
+            .addClass("rdt-pj-rates-toggle-btn--dirty")
+            .prop("disabled", false)
+        );
       });
 
       $row.append($chk).append($label);
-      $box.append($row);
+      if (a.id === NONE_ACCESSORIAL_ID) {
+        $noneGroup.append($row);
+      } else {
+        $otherGroup.append($row);
+      }
     });
+
+    $box.append($noneGroup).append($otherGroup);
 
     return $box;
   }
@@ -392,6 +469,8 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
     $btn.on("click", function () {
       emitSelect({ showRates: true });
     });
+
+    syncRatesButtonState($btn);
 
     $accessorialWrapper.append(renderAccessorials()).append($btn);
 

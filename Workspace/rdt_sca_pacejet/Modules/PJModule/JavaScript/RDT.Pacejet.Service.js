@@ -25,6 +25,7 @@ define("RDT.Pacejet.Service", [
 
   var state = PacejetState.get();
   var requestCounter = 0;
+  var NONE_ACCESSORIAL_ID = "none_additional_fees_may_app";
   var ACCESSORIAL_MAP = {
     driver_call: "DRIVER_CALL",
     job_site: "JOB_SITE",
@@ -235,6 +236,10 @@ define("RDT.Pacejet.Service", [
     if (!accessorials) return false;
 
     return Object.keys(accessorials).some(function (k) {
+      if (k === NONE_ACCESSORIAL_ID) {
+        return false;
+      }
+
       return accessorials[k] === true;
     });
   }

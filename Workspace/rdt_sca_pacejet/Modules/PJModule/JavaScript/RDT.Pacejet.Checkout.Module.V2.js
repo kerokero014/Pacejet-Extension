@@ -28,6 +28,8 @@ define("RDT.Pacejet.Checkout.Module.V2", [
   var REFRESH_TIMER = null;
   var SELECTION_APPLY_TOKEN = 0;
   var SUMMARY_FETCH_IN_FLIGHT = false;
+  var NONE_ACCESSORIAL_ID = "none_additional_fees_may_app";
+  var NONE_ACCESSORIAL_FIELD_ID = "custbody_none_additional_fees_may_app";
 
   var state = PacejetState.get();
 
@@ -58,6 +60,17 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
   function normalizeAccessorialArray(accessorials) {
     return Array.isArray(accessorials) ? accessorials : [];
+  }
+
+  function buildAccessorialCustomFields(accessorialSelection) {
+    var selection = normalizeAccessorialSelection(accessorialSelection);
+
+    return [
+      {
+        id: NONE_ACCESSORIAL_FIELD_ID,
+        value: selection[NONE_ACCESSORIAL_ID] ? "T" : "F"
+      }
+    ];
   }
 
   function fetchOrderSummary(order) {
@@ -356,6 +369,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       service: payload.service || "",
       transitDays: payload.transitDays,
       origins: normalizeOrigins(payload.origins),
+      customfields: buildAccessorialCustomFields(state.selection.accessorials),
       accessorials: normalizeAccessorialArray(payload.accessorials),
       accessorialSelection: normalizeAccessorialSelection(
         state.selection.accessorials

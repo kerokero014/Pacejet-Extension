@@ -61,7 +61,8 @@ define("RDT.Pacejet.Cart.Model", [
       carrier: normalizedPayload.carrier,
       service: normalizedPayload.service,
       transitDays: normalizedPayload.transitDays,
-      quoteJson: normalizedPayload.quoteJson
+      quoteJson: normalizedPayload.quoteJson,
+      customfields: normalizedPayload.customfields
     };
   }
 

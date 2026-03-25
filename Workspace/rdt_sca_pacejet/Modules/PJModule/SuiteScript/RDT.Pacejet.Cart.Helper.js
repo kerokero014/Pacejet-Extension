@@ -6,13 +6,12 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     carrier: "custbody_rdt_pacejet_carrier",
     service: "custbody_rdt_pacejet_service",
     transitDays: "custbody_rdt_pacejet_transitdays",
-    quoteJson: "custbody_rdt_pacejet_quotejson"
+    quoteJson: "custbody_rdt_pacejet_quotejson",
   };
 
   function isPlainObject(value) {
     return (
-      !!value &&
-      Object.prototype.toString.call(value) === "[object Object]"
+      !!value && Object.prototype.toString.call(value) === "[object Object]"
     );
   }
 
@@ -84,7 +83,9 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
   function normalizePayload(payload) {
     var raw = isPlainObject(payload) ? payload : {};
     var shipmethod =
-      raw.shipmethod !== undefined && raw.shipmethod !== null && raw.shipmethod !== ""
+      raw.shipmethod !== undefined &&
+      raw.shipmethod !== null &&
+      raw.shipmethod !== ""
         ? raw.shipmethod
         : raw.shipMethod;
 
@@ -101,7 +102,12 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       carrier: asString(toScalarValue(raw.carrier)),
       service: asString(toScalarValue(raw.service)),
       transitDays: asString(toScalarValue(raw.transitDays)),
-      quoteJson: asString(toScalarValue(raw.quoteJson))
+      quoteJson: asString(toScalarValue(raw.quoteJson)),
+      customfields: Array.isArray(raw.customfields)
+        ? raw.customfields
+        : Array.isArray(raw.customFields)
+          ? raw.customFields
+          : [],
     };
   }
 
@@ -128,15 +134,27 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       return "";
     }
 
-    if (field.value !== undefined && field.value !== null && field.value !== "") {
+    if (
+      field.value !== undefined &&
+      field.value !== null &&
+      field.value !== ""
+    ) {
       return field.value;
     }
 
-    if (field.internalid !== undefined && field.internalid !== null && field.internalid !== "") {
+    if (
+      field.internalid !== undefined &&
+      field.internalid !== null &&
+      field.internalid !== ""
+    ) {
       return field.internalid;
     }
 
-    if (field.internalId !== undefined && field.internalId !== null && field.internalId !== "") {
+    if (
+      field.internalId !== undefined &&
+      field.internalId !== null &&
+      field.internalId !== ""
+    ) {
       return field.internalId;
     }
 
@@ -148,7 +166,9 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       return "";
     }
 
-    return asString(field.id || field.name || field.fieldid || field.fieldId).trim();
+    return asString(
+      field.id || field.name || field.fieldid || field.fieldId
+    ).trim();
   }
 
   function findFieldValueInLists(raw, fieldId) {
@@ -160,7 +180,7 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       raw && raw.bodyFields,
       raw && raw.fields,
       raw && raw.itemoptions_detail && raw.itemoptions_detail.fields,
-      raw && raw.itemoptions && raw.itemoptions.fields
+      raw && raw.itemoptions && raw.itemoptions.fields,
     ];
     var list;
     var i;
@@ -180,7 +200,10 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
             }
           }
         }
-      } else if (isPlainObject(list) && Object.prototype.hasOwnProperty.call(list, fieldId)) {
+      } else if (
+        isPlainObject(list) &&
+        Object.prototype.hasOwnProperty.call(list, fieldId)
+      ) {
         return list[fieldId];
       }
     }
@@ -203,7 +226,10 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
 
     seen.push(raw);
 
-    if (isPlainObject(raw) && Object.prototype.hasOwnProperty.call(raw, fieldId)) {
+    if (
+      isPlainObject(raw) &&
+      Object.prototype.hasOwnProperty.call(raw, fieldId)
+    ) {
       return raw[fieldId];
     }
 
@@ -236,7 +262,10 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
   }
 
   function getPersistedPacejetAmount(order) {
-    var value = getPersistedFieldValue(order, PERSISTED_FIELD_IDS.pacejetAmount);
+    var value = getPersistedFieldValue(
+      order,
+      PERSISTED_FIELD_IDS.pacejetAmount
+    );
 
     return value === "" ? null : asNumber(value, 0);
   }
@@ -244,8 +273,10 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
   function buildPersistenceFieldMap(payload) {
     var normalized = normalizePayload(payload);
     var fields = {};
+    var customfields = normalized.customfields || [];
 
-    fields[PERSISTED_FIELD_IDS.pacejetAmount] = normalized.pacejetAmount.toFixed(2);
+    fields[PERSISTED_FIELD_IDS.pacejetAmount] =
+      normalized.pacejetAmount.toFixed(2);
 
     if (normalized.carrier) {
       fields[PERSISTED_FIELD_IDS.carrier] = normalized.carrier;
@@ -263,6 +294,21 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       fields[PERSISTED_FIELD_IDS.quoteJson] = normalized.quoteJson;
     }
 
+    customfields.forEach(function (field) {
+      var fieldId = getFieldId(field);
+      var fieldValue = getFieldValue(field);
+
+      if (!fieldId) {
+        return;
+      }
+
+      if (fieldValue === "" && field.value !== false) {
+        return;
+      }
+
+      fields[fieldId] = toScalarValue(fieldValue);
+    });
+
     return fields;
   }
 
@@ -276,7 +322,7 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
         "shippingcost",
         "shippingCost",
         "estimatedshipping",
-        "handlingcost"
+        "handlingcost",
       ]),
       0
     );
@@ -286,12 +332,17 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
         "taxtotal",
         "taxTotal",
         "taxamount",
-        "taxAmount"
+        "taxAmount",
       ]),
       0
     );
     var total = asNumber(
-      getSummaryValue(summary, ["total", "order_total", "totalamount", "totalAmount"]),
+      getSummaryValue(summary, [
+        "total",
+        "order_total",
+        "totalamount",
+        "totalAmount",
+      ]),
       subtotal + shipping + tax
     );
 
@@ -304,7 +355,7 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       subtotal: +subtotal.toFixed(2),
       shipping: +shipping.toFixed(2),
       tax: +tax.toFixed(2),
-      total: +total.toFixed(2)
+      total: +total.toFixed(2),
     };
   }
 
@@ -317,6 +368,6 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     normalizeSummary: normalizeSummary,
     PERSISTED_FIELD_IDS: PERSISTED_FIELD_IDS,
     toScalarValue: toScalarValue,
-    validatePayload: validatePayload
+    validatePayload: validatePayload,
   };
 });
