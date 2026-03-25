@@ -3,12 +3,8 @@
 define("RDT.Pacejet.V2", [
   "RDT.Pacejet.Checkout.Module.V2",
   "jQuery",
-  "LiveOrder.Model"
-], function (
-  PacejetCheckout,
-  jQuery,
-  LiveOrderModel
-) {
+  "LiveOrder.Model",
+], function (PacejetCheckout, jQuery, LiveOrderModel) {
   "use strict";
 
   var $ = jQuery;
@@ -26,7 +22,10 @@ define("RDT.Pacejet.V2", [
   }
 
   function isShippingStep() {
-    return (window.location.hash || "").toLowerCase().indexOf("shipping/address") !== -1;
+    return (
+      (window.location.hash || "").toLowerCase().indexOf("shipping/address") !==
+      -1
+    );
   }
 
   function isPacejetSummaryRoute() {
@@ -65,9 +64,10 @@ define("RDT.Pacejet.V2", [
 
   function mountToApp(container) {
     var order = getOrder();
-    var layout = container && container.getComponent
-      ? container.getComponent("Layout")
-      : null;
+    var layout =
+      container && container.getComponent
+        ? container.getComponent("Layout")
+        : null;
 
     if (!order) return;
 
@@ -93,6 +93,6 @@ define("RDT.Pacejet.V2", [
   }
 
   return {
-    mountToApp: mountToApp
+    mountToApp: mountToApp,
   };
 });

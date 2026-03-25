@@ -1,10 +1,7 @@
 define("RDT.rdt_sca_pacejet.PJModule", [
   "RDT.Pacejet.Summary",
-  "RDT.Pacejet.V2"
-], function (
-  PacejetSummary,
-  PacejetV2
-) {
+  "RDT.Pacejet.V2",
+], function (PacejetSummary, PacejetV2) {
   "use strict";
 
   return {
@@ -16,6 +13,6 @@ define("RDT.rdt_sca_pacejet.PJModule", [
       if (PacejetV2 && PacejetV2.mountToApp) {
         PacejetV2.mountToApp(container);
       }
-    }
+    },
   };
 });
