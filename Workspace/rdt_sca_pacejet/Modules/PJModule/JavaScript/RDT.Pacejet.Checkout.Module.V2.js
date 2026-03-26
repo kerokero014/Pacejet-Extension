@@ -3,6 +3,7 @@
 define("RDT.Pacejet.Checkout.Module.V2", [
   "LiveOrder.Model",
   "jQuery",
+  "underscore",
   "RDT.Pacejet.Config",
   "RDT.Pacejet.State",
   "RDT.Pacejet.Service",
@@ -12,6 +13,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 ], function (
   LiveOrderModel,
   jQuery,
+  _,
   PacejetConfig,
   PacejetState,
   PacejetService,
@@ -31,6 +33,16 @@ define("RDT.Pacejet.Checkout.Module.V2", [
   var NONE_ACCESSORIAL_ID = "none_additional_fees_may_app";
   var NONE_ACCESSORIAL_FIELD_ID = "custbody_none_additional_fees_may_app";
 
+  var PACEJET_BODY_FIELDS = {
+    amount: "custbody_rdt_pacejet_amount",
+    carrier: "custbody_rdt_pj_carrier_name",
+    service: "custbody_rdt_pj_service_name",
+    originKey: "custbody_rdt_pj_origin_key",
+    transitDays: "custbody_rdt_pj_transit_days",
+    estimatedArrivalDate: "custbody_rdt_pj_est_arrival_date",
+    quoteJson: "custbody_rdt_pj_quote_json"
+  };
+
   var state = PacejetState.get();
 
   function asNumber(value, fallback) {
@@ -38,16 +50,157 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     return isFinite(num) ? num : fallback || 0;
   }
 
-  function asString(value) {
-    if (value === null || value === undefined) {
-      return "";
-    }
-
-    return String(value);
-  }
-
   function normalizeOrigins(origins) {
     return Array.isArray(origins) ? origins : [];
+  }
+
+  function ensureArray(value) {
+    return _.isArray(value) ? value : value == null ? [] : [value];
+  }
+
+  function getCustomFields(model) {
+    return ensureArray(model.get("customfields") || model.get("customFields"));
+  }
+
+  function setCustomFields(model, fields) {
+    model.set("customfields", fields);
+    model.set("customFields", fields);
+  }
+
+  function upsertBodyField(model, id, value) {
+    if (!model || !id) return;
+
+    var fields = getCustomFields(model);
+    var found = false;
+
+    _.each(fields, function (field) {
+      if (field && field.id === id) {
+        field.value = value;
+        found = true;
+      }
+    });
+
+    if (!found) {
+      fields.push({
+        id: id,
+        value: value
+      });
+    }
+
+    setCustomFields(model, fields);
+  }
+
+  function stageSelectedPacejetFieldsOnOrder(order) {
+    order = order || getOrderModel();
+    if (!order || !order.get || !order.set) return;
+
+    var selectedRate =
+      PacejetState && PacejetState.getSelectedRate
+        ? PacejetState.getSelectedRate()
+        : null;
+
+    if (!selectedRate) return;
+
+    var amount =
+      selectedRate.amount === null || selectedRate.amount === undefined
+        ? ""
+        : String(selectedRate.amount);
+
+    var carrier = selectedRate.carrier || "";
+    var service = selectedRate.service || "";
+    var originKey = selectedRate.originKey || "";
+    var transitDays =
+      selectedRate.transitDays === null ||
+      selectedRate.transitDays === undefined
+        ? ""
+        : String(selectedRate.transitDays);
+    var estimatedArrivalDate = selectedRate.estimatedArrivalDate || "";
+    var quoteJson = selectedRate.quoteJson || "";
+
+    upsertBodyField(order, PACEJET_BODY_FIELDS.amount, amount);
+    upsertBodyField(order, PACEJET_BODY_FIELDS.carrier, carrier);
+    upsertBodyField(order, PACEJET_BODY_FIELDS.service, service);
+    upsertBodyField(order, PACEJET_BODY_FIELDS.originKey, originKey);
+    upsertBodyField(order, PACEJET_BODY_FIELDS.transitDays, transitDays);
+    upsertBodyField(
+      order,
+      PACEJET_BODY_FIELDS.estimatedArrivalDate,
+      estimatedArrivalDate
+    );
+    upsertBodyField(order, PACEJET_BODY_FIELDS.quoteJson, quoteJson);
+
+    if (order.trigger) {
+      order.trigger("change:customfields", order);
+    }
+  }
+
+  function preparePacejetFieldsForPlaceOrder(order) {
+    order = order || getOrderModel();
+    if (!order || !order.get || !order.set) return;
+
+    var selectedRate =
+      PacejetState && PacejetState.getSelectedRate
+        ? PacejetState.getSelectedRate()
+        : null;
+
+    if (!selectedRate) {
+      console.log("[Pacejet] beforePlaceOrder skipped: no selectedRate");
+      return;
+    }
+
+    var options = order.get("options") || {};
+
+    var amount =
+      selectedRate.amount === null || selectedRate.amount === undefined
+        ? ""
+        : String(selectedRate.amount);
+
+    var carrier = selectedRate.carrier || "";
+    var service = selectedRate.service || "";
+    var originKey = selectedRate.originKey || "";
+    var transitDays =
+      selectedRate.transitDays === null ||
+      selectedRate.transitDays === undefined
+        ? ""
+        : String(selectedRate.transitDays);
+    var estimatedArrivalDate = selectedRate.estimatedArrivalDate || "";
+    var quoteJson = selectedRate.quoteJson || "";
+
+    upsertBodyField(order, PACEJET_BODY_FIELDS.amount, amount);
+    upsertBodyField(order, PACEJET_BODY_FIELDS.carrier, carrier);
+    upsertBodyField(order, PACEJET_BODY_FIELDS.service, service);
+    upsertBodyField(order, PACEJET_BODY_FIELDS.originKey, originKey);
+    upsertBodyField(order, PACEJET_BODY_FIELDS.transitDays, transitDays);
+    upsertBodyField(
+      order,
+      PACEJET_BODY_FIELDS.estimatedArrivalDate,
+      estimatedArrivalDate
+    );
+    upsertBodyField(order, PACEJET_BODY_FIELDS.quoteJson, quoteJson);
+
+    options[PACEJET_BODY_FIELDS.amount] = amount;
+    options[PACEJET_BODY_FIELDS.carrier] = carrier;
+    options[PACEJET_BODY_FIELDS.service] = service;
+    options[PACEJET_BODY_FIELDS.originKey] = originKey;
+    options[PACEJET_BODY_FIELDS.transitDays] = transitDays;
+    options[PACEJET_BODY_FIELDS.estimatedArrivalDate] = estimatedArrivalDate;
+    options[PACEJET_BODY_FIELDS.quoteJson] = quoteJson;
+
+    order.set("options", options);
+
+    if (order.trigger) {
+      order.trigger("change:customfields", order);
+      order.trigger("change:options", order);
+    }
+
+    console.log("[Pacejet] beforePlaceOrder prepared fields", {
+      amount: amount,
+      carrier: carrier,
+      service: service,
+      originKey: originKey,
+      transitDays: transitDays,
+      estimatedArrivalDate: estimatedArrivalDate
+    });
   }
 
   function deriveOriginKey(payload) {
@@ -388,6 +541,8 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       quoteJson: quoteJson
     });
 
+    stageSelectedPacejetFieldsOnOrder(order);
+
     state.selection.shipCode = payload.shipCode;
     state.selection.cost = payload.cost;
     state.selection.carrier = payload.carrier;
@@ -609,8 +764,31 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     }
   }
 
+  function wireBeforePlaceOrder(application) {
+    var checkout =
+      application && application.getComponent
+        ? application.getComponent("Checkout")
+        : null;
+
+    if (!checkout || !checkout.on) return;
+
+    checkout.on("beforePlaceOrder", function () {
+      var order = getOrderModel();
+      if (!order) return;
+
+      preparePacejetFieldsForPlaceOrder(order);
+
+      console.log("[Pacejet] beforePlaceOrder persisted Pacejet body fields");
+    });
+  }
+
   return {
+    mountToApp: function (application) {
+      wireBeforePlaceOrder(application);
+    },
+
     run: runOnShippingStep,
+
     syncCurrentRoute: function () {
       var order = getOrderModel();
       if (!order) return;
