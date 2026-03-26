@@ -50,6 +50,39 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     return Array.isArray(origins) ? origins : [];
   }
 
+  function deriveOriginKey(payload) {
+    return normalizeOrigins(payload && payload.origins)
+      .map(function (origin) {
+        return origin && origin.originKey ? String(origin.originKey) : "";
+      })
+      .filter(function (value) {
+        return !!value;
+      })
+      .join("|");
+  }
+
+  function deriveEstimatedArrivalDate(payload) {
+    if (
+      payload &&
+      payload.estimatedArrivalDate !== null &&
+      payload.estimatedArrivalDate !== undefined &&
+      payload.estimatedArrivalDate !== ""
+    ) {
+      return String(payload.estimatedArrivalDate);
+    }
+
+    if (
+      payload &&
+      payload.estDelivery !== null &&
+      payload.estDelivery !== undefined &&
+      payload.estDelivery !== ""
+    ) {
+      return String(payload.estDelivery);
+    }
+
+    return "";
+  }
+
   function normalizeAccessorialSelection(accessorials) {
     return accessorials &&
       typeof accessorials === "object" &&
@@ -212,6 +245,8 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     state.selection.carrier = null;
     state.selection.service = null;
     state.selection.transitDays = null;
+    state.selection.originKey = null;
+    state.selection.estimatedArrivalDate = null;
     state.selection.origins = [];
   }
 
@@ -260,6 +295,9 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     state.selection.carrier = selectedRate.carrier || null;
     state.selection.service = selectedRate.service || null;
     state.selection.transitDays = selectedRate.transitDays || null;
+    state.selection.originKey = selectedRate.originKey || null;
+    state.selection.estimatedArrivalDate =
+      selectedRate.estimatedArrivalDate || null;
     state.selection.origins = normalizeOrigins(selectedRate.origins);
   }
 
@@ -322,6 +360,19 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
     applyCarrierAccessorialRules(payload);
 
+    var originKey = deriveOriginKey(payload);
+    var estimatedArrivalDate = deriveEstimatedArrivalDate(payload);
+    var quoteJson = JSON.stringify({
+      shipmethod: payload.shipCode,
+      amount: asNumber(payload.cost, 0),
+      carrier: payload.carrier || "",
+      service: payload.service || "",
+      transitDays: payload.transitDays,
+      originKey: originKey,
+      estimatedArrivalDate: estimatedArrivalDate,
+      origins: normalizeOrigins(payload.origins)
+    });
+
     PacejetState.setSelectedRate({
       shipmethod: payload.shipCode,
       amount: asNumber(payload.cost, 0),
@@ -331,14 +382,10 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         payload.transitDays === null || payload.transitDays === undefined
           ? ""
           : payload.transitDays,
-      quoteJson: JSON.stringify({
-        shipmethod: payload.shipCode,
-        amount: asNumber(payload.cost, 0),
-        carrier: payload.carrier || "",
-        service: payload.service || "",
-        transitDays: payload.transitDays,
-        origins: normalizeOrigins(payload.origins)
-      })
+      originKey: originKey,
+      estimatedArrivalDate: estimatedArrivalDate,
+      origins: normalizeOrigins(payload.origins),
+      quoteJson: quoteJson
     });
 
     state.selection.shipCode = payload.shipCode;
@@ -346,6 +393,8 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     state.selection.carrier = payload.carrier;
     state.selection.service = payload.service;
     state.selection.transitDays = payload.transitDays;
+    state.selection.originKey = originKey;
+    state.selection.estimatedArrivalDate = estimatedArrivalDate;
     state.selection.origins = normalizeOrigins(payload.origins);
     PacejetState.clearPersistenceResult();
 
@@ -369,20 +418,15 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       carrier: payload.carrier || "",
       service: payload.service || "",
       transitDays: payload.transitDays,
+      originKey: originKey,
+      estimatedArrivalDate: estimatedArrivalDate,
       origins: normalizeOrigins(payload.origins),
       customfields: buildAccessorialCustomFields(state.selection.accessorials),
       accessorials: normalizeAccessorialArray(payload.accessorials),
       accessorialSelection: normalizeAccessorialSelection(
         state.selection.accessorials
       ),
-      quoteJson: JSON.stringify({
-        shipmethod: payload.shipCode,
-        amount: asNumber(payload.cost, 0),
-        carrier: payload.carrier || "",
-        service: payload.service || "",
-        transitDays: payload.transitDays,
-        origins: normalizeOrigins(payload.origins)
-      })
+      quoteJson: quoteJson
     })
       .then(function () {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;

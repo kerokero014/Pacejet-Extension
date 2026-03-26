@@ -6,6 +6,8 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     carrier: "custbody_rdt_pj_carrier_name",
     service: "custbody_rdt_pj_service_name",
     transitDays: "custbody_rdt_pj_transit_days",
+    originKey: "custbody_rdt_pj_origin_key",
+    estimatedArrivalDate: "custbody_rdt_pj_est_arrival_date",
     quoteJson: "custbody_rdt_pj_quote_json"
   };
 
@@ -102,6 +104,16 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       carrier: asString(toScalarValue(raw.carrier)),
       service: asString(toScalarValue(raw.service)),
       transitDays: asString(toScalarValue(raw.transitDays)),
+      originKey: asString(toScalarValue(raw.originKey)),
+      estimatedArrivalDate: asString(
+        toScalarValue(
+          raw.estimatedArrivalDate !== undefined &&
+            raw.estimatedArrivalDate !== null &&
+            raw.estimatedArrivalDate !== ""
+            ? raw.estimatedArrivalDate
+            : raw.estDelivery
+        )
+      ),
       quoteJson: asString(toScalarValue(raw.quoteJson)),
       customfields: Array.isArray(raw.customfields)
         ? raw.customfields
@@ -288,6 +300,15 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
 
     if (normalized.transitDays) {
       fields[PERSISTED_FIELD_IDS.transitDays] = normalized.transitDays;
+    }
+
+    if (normalized.originKey) {
+      fields[PERSISTED_FIELD_IDS.originKey] = normalized.originKey;
+    }
+
+    if (normalized.estimatedArrivalDate) {
+      fields[PERSISTED_FIELD_IDS.estimatedArrivalDate] =
+        normalized.estimatedArrivalDate;
     }
 
     if (normalized.quoteJson) {

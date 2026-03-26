@@ -125,6 +125,20 @@ define(
           data.transitDays !== null && data.transitDays !== undefined
             ? String(toScalarValue(data.transitDays))
             : "",
+        originKey:
+          data.originKey !== null && data.originKey !== undefined
+            ? String(toScalarValue(data.originKey))
+            : "",
+        estimatedArrivalDate:
+          data.estimatedArrivalDate !== null &&
+          data.estimatedArrivalDate !== undefined &&
+          data.estimatedArrivalDate !== ""
+            ? String(toScalarValue(data.estimatedArrivalDate))
+            : data.estDelivery !== null &&
+                data.estDelivery !== undefined &&
+                data.estDelivery !== ""
+              ? String(toScalarValue(data.estDelivery))
+              : "",
         quoteJson:
           data.quoteJson !== null && data.quoteJson !== undefined
             ? normalizeQuoteJson(data.quoteJson)
