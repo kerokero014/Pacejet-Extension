@@ -69,10 +69,10 @@ define("RDT.Pacejet.Cart.Model", [
   function persistPacejetFields(liveOrder, payload) {
     var fieldMap = CartHelper.buildPersistenceFieldMap(payload);
 
-    // LiveOrder get() exposes order-level body values under options on this
-    // account, but the write shape for those fields is not verified. The
-    // attempted options/bodyFields mutations reintroduced the legacy
-    // `.length` crash in ssp_libraries, so we do not mutate them here.
+    // Checkout-time persistence is intentionally disabled for now because
+    // this SSP/LiveOrder path has a legacy crash when we try to push record
+    // writes during rate selection. We keep the UI-only flow and defer SO
+    // persistence to a later dedicated backend hook.
     return {
       ok: false,
       channel: "",
@@ -110,16 +110,21 @@ define("RDT.Pacejet.Cart.Model", [
     updatedOrder = safeGet(liveOrder);
 
     return {
-      ok: true,
+      ok: !!(persistenceResult && persistenceResult.ok),
       shipmethod: payload.shipmethod,
       pacejetAmount: payload.pacejetAmount,
       persistence: {
         attempted: true,
         saved: !!(persistenceResult && persistenceResult.ok),
         channel: persistenceResult ? persistenceResult.channel : "",
+        error: persistenceResult ? persistenceResult.error || "" : "",
+        orderId: persistenceResult ? persistenceResult.orderId || "" : "",
+        totals: persistenceResult ? persistenceResult.totals || null : null,
         fields: persistenceResult ? persistenceResult.fields : {}
       },
-      summary: CartHelper.normalizeSummary(updatedOrder)
+      summary: persistenceResult && persistenceResult.totals
+        ? persistenceResult.totals
+        : CartHelper.normalizeSummary(updatedOrder)
     };
   }
 

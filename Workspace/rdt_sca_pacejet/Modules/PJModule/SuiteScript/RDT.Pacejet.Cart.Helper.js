@@ -3,10 +3,10 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
 
   var PERSISTED_FIELD_IDS = {
     pacejetAmount: "custbody_rdt_pacejet_amount",
-    carrier: "custbody_rdt_pacejet_carrier",
-    service: "custbody_rdt_pacejet_service",
-    transitDays: "custbody_rdt_pacejet_transitdays",
-    quoteJson: "custbody_rdt_pacejet_quotejson",
+    carrier: "custbody_rdt_pj_carrier_name",
+    service: "custbody_rdt_pj_service_name",
+    transitDays: "custbody_rdt_pj_transit_days",
+    quoteJson: "custbody_rdt_pj_quote_json"
   };
 
   function isPlainObject(value) {
@@ -355,7 +355,22 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       subtotal: +subtotal.toFixed(2),
       shipping: +shipping.toFixed(2),
       tax: +tax.toFixed(2),
-      total: +total.toFixed(2),
+      total: +total.toFixed(2)
+    };
+  }
+
+  function buildSummaryFromTotals(totals) {
+    var data = totals && typeof totals === "object" ? totals : {};
+    var subtotal = asNumber(data.subtotal, 0);
+    var shipping = asNumber(data.shipping, 0);
+    var tax = asNumber(data.tax, 0);
+    var total = asNumber(data.total, subtotal + shipping + tax);
+
+    return {
+      subtotal: +subtotal.toFixed(2),
+      shipping: +shipping.toFixed(2),
+      tax: +tax.toFixed(2),
+      total: +total.toFixed(2)
     };
   }
 
@@ -363,6 +378,7 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     buildPersistenceFieldMap: buildPersistenceFieldMap,
     getPersistedFieldValue: getPersistedFieldValue,
     getPersistedPacejetAmount: getPersistedPacejetAmount,
+    buildSummaryFromTotals: buildSummaryFromTotals,
     normalizePayload: normalizePayload,
     normalizeShipmethod: normalizeShipmethod,
     normalizeSummary: normalizeSummary,

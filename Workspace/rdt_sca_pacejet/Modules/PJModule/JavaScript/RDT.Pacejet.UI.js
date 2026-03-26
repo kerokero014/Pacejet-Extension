@@ -217,7 +217,21 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
   }
 
   function setContinueButtonState(enabled) {
-    // Leave checkout step navigation under the native checkout flow.
+    var selectors = [
+      "[data-action='submit-step']",
+      "[data-action='place-order']",
+      ".wizard-step-navigation-buttons-right .button-primary",
+      ".order-wizard-submitbutton-module-button"
+    ];
+    var shouldEnable = !!enabled;
+
+    $(selectors.join(", ")).each(function () {
+      var $button = $(this);
+      $button.prop("disabled", !shouldEnable);
+      $button.attr("aria-disabled", shouldEnable ? "false" : "true");
+      $button.toggleClass("rdt-pj-disabled", !shouldEnable);
+    });
+
     return enabled;
   }
 
@@ -608,10 +622,32 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
   }
 
   function getReviewRate(order) {
+    var persistence = PacejetState && PacejetState.getPersistenceResult
+      ? PacejetState.getPersistenceResult()
+      : null;
     var selectedRate = PacejetState && PacejetState.getSelectedRate
       ? PacejetState.getSelectedRate()
       : null;
     var shipmethodId = getShipmethodId(order && order.get ? order.get("shipmethod") : "");
+
+    if (
+      persistence &&
+      persistence.saved &&
+      getShipmethodId(persistence.shipmethod) === shipmethodId
+    ) {
+      return {
+        shipmethod: shipmethodId,
+        carrier: persistence.carrier || "Pacejet",
+        service: persistence.service || "Selected shipping service",
+        amount:
+          persistence.totals &&
+          persistence.totals.shipping !== undefined &&
+          persistence.totals.shipping !== null
+            ? persistence.totals.shipping
+            : getOrderSummaryShipping(order),
+        transitDays: persistence.transitDays || ""
+      };
+    }
 
     if (selectedRate && getShipmethodId(selectedRate.shipmethod) === shipmethodId) {
       return {

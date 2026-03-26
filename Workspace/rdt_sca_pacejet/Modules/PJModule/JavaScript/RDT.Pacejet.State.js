@@ -48,12 +48,23 @@ define("RDT.Pacejet.State", [], function () {
       truckloadRequired: false,
       accessorialsDirty: false,
       ratesVisible: false,
-      ratesLoading: false
+      ratesLoading: false,
+      persistencePending: false
     },
 
     unmappedRates: [],
     fallbackRates: [],
-    selectedRate: null
+    selectedRate: null,
+    persistence: {
+      saved: false,
+      error: "",
+      shipmethod: null,
+      pacejetAmount: null,
+      carrier: null,
+      service: null,
+      transitDays: null,
+      totals: null
+    }
   };
 
   return {
@@ -77,6 +88,46 @@ define("RDT.Pacejet.State", [], function () {
 
     clearSelectedRate: function () {
       state.selectedRate = null;
+    },
+
+    setPersistencePending: function (pending) {
+      state.flags.persistencePending = !!pending;
+    },
+
+    setPersistenceResult: function (result) {
+      var data = result && typeof result === "object" ? clone(result) : {};
+
+      state.persistence = {
+        saved: !!data.saved,
+        error: data.error ? String(data.error) : "",
+        shipmethod: data.shipmethod || null,
+        pacejetAmount:
+          data.pacejetAmount === 0 || data.pacejetAmount
+            ? Number(data.pacejetAmount)
+            : null,
+        carrier: data.carrier || null,
+        service: data.service || null,
+        transitDays: data.transitDays || null,
+        totals: data.totals && typeof data.totals === "object" ? data.totals : null
+      };
+    },
+
+    getPersistenceResult: function () {
+      return clone(state.persistence);
+    },
+
+    clearPersistenceResult: function () {
+      state.persistence = {
+        saved: false,
+        error: "",
+        shipmethod: null,
+        pacejetAmount: null,
+        carrier: null,
+        service: null,
+        transitDays: null,
+        totals: null
+      };
+      state.flags.persistencePending = false;
     },
 
     recordUnmapped: function (info) {
@@ -140,6 +191,17 @@ define("RDT.Pacejet.State", [], function () {
       state.flags.accessorialsDirty = false;
       state.flags.ratesVisible = false;
       state.flags.ratesLoading = false;
+      state.flags.persistencePending = false;
+      state.persistence = {
+        saved: false,
+        error: "",
+        shipmethod: null,
+        pacejetAmount: null,
+        carrier: null,
+        service: null,
+        transitDays: null,
+        totals: null
+      };
     }
   };
 });

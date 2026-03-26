@@ -241,6 +241,27 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     return selectedRate;
   }
 
+  function getPersistedStateSummaryForOrder(order) {
+    var persistence = PacejetState.getPersistenceResult
+      ? PacejetState.getPersistenceResult()
+      : null;
+    var currentShipmethod = getShipmethodId(
+      order && typeof order.get === "function" ? order.get("shipmethod") : ""
+    );
+
+    if (
+      !persistence ||
+      !persistence.saved ||
+      !persistence.shipmethod ||
+      !persistence.totals ||
+      getShipmethodId(persistence.shipmethod) !== currentShipmethod
+    ) {
+      return null;
+    }
+
+    return cloneObject(persistence.totals);
+  }
+
   function getResolvedShippingAmount(order, sourceSummary) {
     var persistedAmount = getPacejetShippingOverride(order);
     var selectedRate = getSelectedRateForOrder(order);
@@ -284,7 +305,9 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
 
   function buildOverriddenSummary(order, sourceSummary) {
     var summary = cloneObject(sourceSummary);
+    var authoritativeSummary = getPersistedStateSummaryForOrder(order);
     var resolvedShipping = getResolvedShippingAmount(order, summary);
+    var nativeShipping;
     var subtotal;
     var nativeTax;
     var effectiveTaxRate;
@@ -292,7 +315,41 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     var taxTotal;
     var total;
 
+    if (authoritativeSummary) {
+      summary.shipping = asNumber(authoritativeSummary.shipping, 0);
+      summary.shippingcost = asNumber(authoritativeSummary.shipping, 0);
+      summary.shippingCost = asNumber(authoritativeSummary.shipping, 0);
+      summary.estimatedshipping = asNumber(authoritativeSummary.shipping, 0);
+      summary.tax = asNumber(authoritativeSummary.tax, 0);
+      summary.taxtotal = asNumber(authoritativeSummary.tax, 0);
+      summary.taxTotal = asNumber(authoritativeSummary.tax, 0);
+      summary.taxamount = asNumber(authoritativeSummary.tax, 0);
+      summary.taxAmount = asNumber(authoritativeSummary.tax, 0);
+      summary.total = asNumber(authoritativeSummary.total, 0);
+      summary.totalamount = asNumber(authoritativeSummary.total, 0);
+      summary.totalAmount = asNumber(authoritativeSummary.total, 0);
+      summary.order_total = asNumber(authoritativeSummary.total, 0);
+      summary.subtotal = asNumber(authoritativeSummary.subtotal, summary.subtotal);
+      summary[SUMMARY_OVERRIDE_FLAG] = true;
+      summary[SUMMARY_OVERRIDE_SHIPPING_KEY] = summary.shipping;
+      return summary;
+    }
+
     if (!resolvedShipping || resolvedShipping.source === "native") {
+      return summary;
+    }
+
+    nativeShipping = asNumber(
+      getSummaryValue(summary, [
+        "shipping",
+        "shippingcost",
+        "shippingCost",
+        "estimatedshipping"
+      ]),
+      0
+    );
+
+    if (asNumber(resolvedShipping.amount, 0) === nativeShipping) {
       return summary;
     }
 
@@ -487,6 +544,7 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
 
     var sourceSummary = getOrderSummaryRecord(order);
     var summary = buildOverriddenSummary(order, sourceSummary);
+    var authoritativeSummary = getPersistedStateSummaryForOrder(order);
     var resolvedShipping = getResolvedShippingAmount(order, sourceSummary);
     var tax = num(
       summary.taxtotal ||
@@ -496,7 +554,9 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
         summary.taxAmount ||
         0
     );
-    var shipping = asNumber(resolvedShipping.amount, 0);
+    var shipping = authoritativeSummary
+      ? asNumber(authoritativeSummary.shipping, 0)
+      : asNumber(resolvedShipping.amount, 0);
     var subtotal = num(summary.subtotal || 0);
     var total = num(
       summary.total ||
@@ -506,7 +566,9 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
         0
     );
 
-    if (resolvedShipping.source !== "native" || !total) {
+    if (authoritativeSummary) {
+      total = asNumber(authoritativeSummary.total, total);
+    } else if (resolvedShipping.source !== "native" || !total) {
       total = +(subtotal + shipping + tax).toFixed(2);
     }
 

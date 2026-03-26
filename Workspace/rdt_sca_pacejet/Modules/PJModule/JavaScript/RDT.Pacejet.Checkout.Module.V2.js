@@ -128,7 +128,6 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     });
 
     order.set("shipmethod", shipmethodId);
-
     return order.save().then(function () {
       logSummarySnapshot(order, "after-native-save", {
         selectedShipCode: shipmethodId
@@ -207,6 +206,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
   function clearSelectedRate() {
     PacejetState.clearSelectedRate();
+    PacejetState.clearPersistenceResult();
     state.selection.shipCode = null;
     state.selection.cost = null;
     state.selection.carrier = null;
@@ -347,6 +347,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     state.selection.service = payload.service;
     state.selection.transitDays = payload.transitDays;
     state.selection.origins = normalizeOrigins(payload.origins);
+    PacejetState.clearPersistenceResult();
 
     var applyToken = ++SELECTION_APPLY_TOKEN;
 
