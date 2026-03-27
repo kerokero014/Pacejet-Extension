@@ -81,11 +81,70 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
   // Read helpers
   // --------------------------------------------
   function getOrderSummaryRecord(order) {
+    var summary;
+    var confirmation;
+    var confirmationSummary;
+
     if (!order || !order.get) {
       return {};
     }
 
-    return order.get("summary") || {};
+    summary = cloneObject(order.get("summary") || {});
+    confirmation = order.get("confirmation") || {};
+    confirmationSummary =
+      confirmation && typeof confirmation.summary === "object"
+        ? confirmation.summary
+        : null;
+
+    if (!confirmationSummary) {
+      return summary;
+    }
+
+    if (
+      confirmationSummary.subtotal !== undefined &&
+      confirmationSummary.subtotal !== null
+    ) {
+      summary.subtotal = confirmationSummary.subtotal;
+      summary.subtotal_formatted = confirmationSummary.subtotal_formatted;
+    }
+
+    if (
+      confirmationSummary.taxtotal !== undefined &&
+      confirmationSummary.taxtotal !== null
+    ) {
+      summary.taxtotal = confirmationSummary.taxtotal;
+      summary.taxTotal = confirmationSummary.taxtotal;
+      summary.tax = confirmationSummary.taxtotal;
+      summary.taxamount = confirmationSummary.taxtotal;
+      summary.taxAmount = confirmationSummary.taxtotal;
+      summary.taxtotal_formatted = confirmationSummary.taxtotal_formatted;
+    }
+
+    if (
+      confirmationSummary.total !== undefined &&
+      confirmationSummary.total !== null
+    ) {
+      summary.total = confirmationSummary.total;
+      summary.totalamount = confirmationSummary.total;
+      summary.totalAmount = confirmationSummary.total;
+      summary.order_total = confirmationSummary.total;
+      summary.total_formatted = confirmationSummary.total_formatted;
+    }
+
+    if (
+      (!summary.shippingcost && !summary.shippingCost && !summary.shipping) &&
+      confirmationSummary.shippingcost !== undefined &&
+      confirmationSummary.shippingcost !== null
+    ) {
+      summary.shippingcost = confirmationSummary.shippingcost;
+      summary.shippingCost = confirmationSummary.shippingcost;
+      summary.shipping = confirmationSummary.shippingcost;
+      summary.estimatedshipping = confirmationSummary.shippingcost;
+      summary.shippingcost_formatted =
+        confirmationSummary.shippingcost_formatted;
+    }
+
+    return summary;
   }
 
   function getSummaryValue(summary, keys) {
@@ -98,6 +157,22 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     }
 
     return 0;
+  }
+
+  function hasSummaryValue(summary, keys) {
+    var i;
+
+    if (!summary || !keys || !keys.length) {
+      return false;
+    }
+
+    for (i = 0; i < keys.length; i += 1) {
+      if (summary[keys[i]] !== undefined && summary[keys[i]] !== null) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   function getFieldValue(field) {
@@ -314,22 +389,44 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     var shipping;
     var taxTotal;
     var total;
+    var subtotalKeys = ["subtotal"];
+    var shippingKeys = [
+      "shipping",
+      "shippingcost",
+      "shippingCost",
+      "estimatedshipping"
+    ];
+    var taxKeys = ["taxtotal", "taxTotal", "tax", "taxamount", "taxAmount"];
+    var totalKeys = ["total", "totalamount", "totalAmount", "order_total"];
 
     if (authoritativeSummary) {
-      summary.shipping = asNumber(authoritativeSummary.shipping, 0);
-      summary.shippingcost = asNumber(authoritativeSummary.shipping, 0);
-      summary.shippingCost = asNumber(authoritativeSummary.shipping, 0);
-      summary.estimatedshipping = asNumber(authoritativeSummary.shipping, 0);
-      summary.tax = asNumber(authoritativeSummary.tax, 0);
-      summary.taxtotal = asNumber(authoritativeSummary.tax, 0);
-      summary.taxTotal = asNumber(authoritativeSummary.tax, 0);
-      summary.taxamount = asNumber(authoritativeSummary.tax, 0);
-      summary.taxAmount = asNumber(authoritativeSummary.tax, 0);
-      summary.total = asNumber(authoritativeSummary.total, 0);
-      summary.totalamount = asNumber(authoritativeSummary.total, 0);
-      summary.totalAmount = asNumber(authoritativeSummary.total, 0);
-      summary.order_total = asNumber(authoritativeSummary.total, 0);
-      summary.subtotal = asNumber(authoritativeSummary.subtotal, summary.subtotal);
+      shipping = hasSummaryValue(authoritativeSummary, shippingKeys)
+        ? asNumber(getSummaryValue(authoritativeSummary, shippingKeys), 0)
+        : asNumber(resolvedShipping.amount, 0);
+      subtotal = hasSummaryValue(authoritativeSummary, subtotalKeys)
+        ? asNumber(getSummaryValue(authoritativeSummary, subtotalKeys), 0)
+        : asNumber(getSummaryValue(summary, subtotalKeys), 0);
+      taxTotal = hasSummaryValue(authoritativeSummary, taxKeys)
+        ? asNumber(getSummaryValue(authoritativeSummary, taxKeys), 0)
+        : asNumber(getSummaryValue(summary, taxKeys), 0);
+      total = hasSummaryValue(authoritativeSummary, totalKeys)
+        ? asNumber(getSummaryValue(authoritativeSummary, totalKeys), 0)
+        : +(subtotal + shipping + taxTotal).toFixed(2);
+
+      summary.shipping = shipping;
+      summary.shippingcost = shipping;
+      summary.shippingCost = shipping;
+      summary.estimatedshipping = shipping;
+      summary.tax = taxTotal;
+      summary.taxtotal = taxTotal;
+      summary.taxTotal = taxTotal;
+      summary.taxamount = taxTotal;
+      summary.taxAmount = taxTotal;
+      summary.total = total;
+      summary.totalamount = total;
+      summary.totalAmount = total;
+      summary.order_total = total;
+      summary.subtotal = subtotal;
       summary[SUMMARY_OVERRIDE_FLAG] = true;
       summary[SUMMARY_OVERRIDE_SHIPPING_KEY] = summary.shipping;
       return summary;
@@ -340,12 +437,7 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     }
 
     nativeShipping = asNumber(
-      getSummaryValue(summary, [
-        "shipping",
-        "shippingcost",
-        "shippingCost",
-        "estimatedshipping"
-      ]),
+      getSummaryValue(summary, shippingKeys),
       0
     );
 
@@ -361,17 +453,8 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
       return summary;
     }
 
-    subtotal = asNumber(getSummaryValue(summary, ["subtotal"]), 0);
-    nativeTax = asNumber(
-      getSummaryValue(summary, [
-        "taxtotal",
-        "taxTotal",
-        "tax",
-        "taxamount",
-        "taxAmount"
-      ]),
-      0
-    );
+    subtotal = asNumber(getSummaryValue(summary, subtotalKeys), 0);
+    nativeTax = asNumber(getSummaryValue(summary, taxKeys), 0);
     effectiveTaxRate = subtotal > 0 ? nativeTax / subtotal : 0;
     shipping = asNumber(resolvedShipping.amount, 0);
     taxTotal = +((subtotal + shipping) * effectiveTaxRate).toFixed(2);
@@ -848,8 +931,8 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
 
     var rows = [
       { key: "subtotal", label: "Subtotal", amount: data.subtotal },
-      { key: "tax", label: "Tax Total", amount: data.tax },
-      { key: "shipping", label: "Shipping Cost", amount: data.shipping },
+      { key: "shipping", label: "Shipping", amount: data.shipping },
+      { key: "tax", label: "Tax", amount: data.tax },
       { key: "total", label: "Total", amount: data.total }
     ];
 

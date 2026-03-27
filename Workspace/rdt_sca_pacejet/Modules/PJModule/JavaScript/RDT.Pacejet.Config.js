@@ -143,7 +143,9 @@ define("RDT.Pacejet.Config", [], function () {
 
     getRatesUrl: "/app/site/hosting/scriptlet.nl?script=3954&deploy=1",
 
-    testApplyShippingUrl: "/app/site/hosting/scriptlet.nl?script=3984&deploy=1",
+    testApplyShippingUrl: "/app/site/hosting/scriptlet.nl?script=3984&deploy=2",
+    // Legacy confirmation-time apply Suitelet. Leave disabled unless that
+    // NetSuite script/deployment is present and intentionally in use.
     enableTestApplyShipping: true,
 
     // Server-side Pacejet endpoint (used only from SuiteScript)
