@@ -4,12 +4,14 @@ define("RDT.Pacejet.V2", [
   "RDT.Pacejet.Checkout.Module.V2",
   "RDT.Pacejet.Config",
   "RDT.Pacejet.State",
+  "RDT.Pacejet.Summary",
   "jQuery",
   "LiveOrder.Model"
 ], function (
   PacejetCheckout,
   PacejetConfig,
   PacejetState,
+  PacejetSummary,
   jQuery,
   LiveOrderModel
 ) {
@@ -127,9 +129,106 @@ define("RDT.Pacejet.V2", [
     }
   }
 
+  function asNumber(value, fallback) {
+    var number = Number(value);
+    return isFinite(number) ? number : fallback || 0;
+  }
+
+  function getSummaryValue(summary, keys) {
+    var data = summary && typeof summary === "object" ? summary : {};
+    var i;
+
+    for (i = 0; i < keys.length; i += 1) {
+      if (data[keys[i]] !== undefined && data[keys[i]] !== null) {
+        return data[keys[i]];
+      }
+    }
+
+    return null;
+  }
+
+  function computePayloadTotals(order, shippingAmount, summaryData) {
+    var confirmation = safeGet(order, "confirmation") || {};
+    var confirmationSummary =
+      confirmation && typeof confirmation.summary === "object"
+        ? confirmation.summary
+        : {};
+    var sourceSummary = safeGet(order, "summary") || {};
+    var subtotal = asNumber(
+      getSummaryValue(confirmationSummary, ["subtotal"]) !== null
+        ? getSummaryValue(confirmationSummary, ["subtotal"])
+        : getSummaryValue(sourceSummary, ["subtotal"]),
+      0
+    );
+    var nativeTax = asNumber(
+      getSummaryValue(confirmationSummary, [
+        "taxtotal",
+        "taxTotal",
+        "tax",
+        "taxamount",
+        "taxAmount"
+      ]) !== null
+        ? getSummaryValue(confirmationSummary, [
+            "taxtotal",
+            "taxTotal",
+            "tax",
+            "taxamount",
+            "taxAmount"
+          ])
+        : getSummaryValue(sourceSummary, [
+            "taxtotal",
+            "taxTotal",
+            "tax",
+            "taxamount",
+            "taxAmount"
+          ]),
+      0
+    );
+    var summaryShipping = asNumber(
+      summaryData && summaryData.shipping !== undefined
+        ? summaryData.shipping
+        : getSummaryValue(sourceSummary, [
+            "shipping",
+            "shippingcost",
+            "shippingCost",
+            "estimatedshipping"
+          ]),
+      0
+    );
+    var shipping = asNumber(
+      shippingAmount !== null && shippingAmount !== undefined && shippingAmount !== ""
+        ? shippingAmount
+        : summaryShipping,
+      summaryShipping
+    );
+    var effectiveTaxRate = subtotal > 0 ? nativeTax / subtotal : 0;
+    var tax = +((subtotal + shipping) * effectiveTaxRate).toFixed(2);
+    var total = +(subtotal + shipping + tax).toFixed(2);
+
+    if (
+      summaryData &&
+      asNumber(summaryData.shipping, shipping) === shipping &&
+      asNumber(summaryData.tax, tax) > tax
+    ) {
+      tax = +asNumber(summaryData.tax, tax).toFixed(2);
+      total = +asNumber(summaryData.total, subtotal + shipping + tax).toFixed(2);
+    }
+
+    return {
+      subtotal: +subtotal.toFixed(2),
+      shipping: +shipping.toFixed(2),
+      tax: tax,
+      total: total
+    };
+  }
+
   function buildTestApplyPayload(order) {
     var confirmationOrderId = getConfirmationOrderId(order);
     var shipmethod = getShipmethodId(safeGet(order, "shipmethod"));
+    var persistence =
+      PacejetState && PacejetState.getPersistenceResult
+        ? PacejetState.getPersistenceResult()
+        : null;
     var selectedRate =
       PacejetState && PacejetState.getSelectedRate
         ? PacejetState.getSelectedRate()
@@ -139,6 +238,10 @@ define("RDT.Pacejet.V2", [
       confirmation && typeof confirmation.summary === "object"
         ? confirmation.summary
         : {};
+    var renderedSummary =
+      PacejetSummary && PacejetSummary.getSummary
+        ? PacejetSummary.getSummary(order)
+        : null;
     var pacejetAmount = getCustomFieldValue(
       order,
       "custbody_rdt_pacejet_amount"
@@ -190,11 +293,47 @@ define("RDT.Pacejet.V2", [
       (pacejetAmount === null ||
         pacejetAmount === undefined ||
         pacejetAmount === "") &&
+      persistence &&
+      persistence.saved &&
+      persistence.totals &&
+      persistence.totals.shipping !== null &&
+      persistence.totals.shipping !== undefined
+    ) {
+      pacejetAmount = persistence.totals.shipping;
+    }
+
+    if (
+      (pacejetAmount === null ||
+        pacejetAmount === undefined ||
+        pacejetAmount === "") &&
+      persistence &&
+      persistence.saved &&
+      persistence.pacejetAmount !== null &&
+      persistence.pacejetAmount !== undefined
+    ) {
+      pacejetAmount = persistence.pacejetAmount;
+    }
+
+    if (
+      (pacejetAmount === null ||
+        pacejetAmount === undefined ||
+        pacejetAmount === "") &&
       selectedRate &&
       selectedRate.amount !== null &&
       selectedRate.amount !== undefined
     ) {
       pacejetAmount = selectedRate.amount;
+    }
+
+    if (
+      (pacejetAmount === null ||
+        pacejetAmount === undefined ||
+        pacejetAmount === "") &&
+      parsedQuote &&
+      parsedQuote.amount !== null &&
+      parsedQuote.amount !== undefined
+    ) {
+      pacejetAmount = parsedQuote.amount;
     }
 
     if (!carrier && selectedRate && selectedRate.carrier) {
@@ -243,10 +382,13 @@ define("RDT.Pacejet.V2", [
       pacejetAmount = confirmationSummary.shippingcost;
     }
 
+    var summaryData = computePayloadTotals(order, pacejetAmount, renderedSummary);
+
     return {
       orderId: confirmationOrderId,
       shipmethod: shipmethod || "",
       pacejetAmount: Number(pacejetAmount || 0),
+      totals: summaryData,
       carrier: carrier || "",
       service: service || "",
       transitDays:
@@ -335,6 +477,7 @@ define("RDT.Pacejet.V2", [
         ) {
           PacejetState.setPersistenceResult({
             saved: true,
+            orderId: payload.orderId,
             shipmethod: payload.shipmethod,
             pacejetAmount: payload.pacejetAmount,
             carrier: payload.carrier,

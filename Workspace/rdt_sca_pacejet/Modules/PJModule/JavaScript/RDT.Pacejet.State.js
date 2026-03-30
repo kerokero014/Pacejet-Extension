@@ -58,6 +58,7 @@ define("RDT.Pacejet.State", [], function () {
     persistence: {
       saved: false,
       error: "",
+      orderId: null,
       shipmethod: null,
       pacejetAmount: null,
       carrier: null,
@@ -100,6 +101,8 @@ define("RDT.Pacejet.State", [], function () {
       state.persistence = {
         saved: !!data.saved,
         error: data.error ? String(data.error) : "",
+        orderId:
+          data.orderId === 0 || data.orderId ? String(data.orderId) : null,
         shipmethod: data.shipmethod || null,
         pacejetAmount:
           data.pacejetAmount === 0 || data.pacejetAmount
@@ -120,6 +123,7 @@ define("RDT.Pacejet.State", [], function () {
       state.persistence = {
         saved: false,
         error: "",
+        orderId: null,
         shipmethod: null,
         pacejetAmount: null,
         carrier: null,
@@ -195,6 +199,7 @@ define("RDT.Pacejet.State", [], function () {
       state.persistence = {
         saved: false,
         error: "",
+        orderId: null,
         shipmethod: null,
         pacejetAmount: null,
         carrier: null,

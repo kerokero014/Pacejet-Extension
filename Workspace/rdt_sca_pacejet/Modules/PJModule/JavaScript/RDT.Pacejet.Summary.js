@@ -323,18 +323,49 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     var currentShipmethod = getShipmethodId(
       order && typeof order.get === "function" ? order.get("shipmethod") : ""
     );
+    var currentConfirmationId = getOrderConfirmationId(order);
+    var persistedOrderId =
+      persistence && persistence.orderId !== undefined && persistence.orderId !== null
+        ? String(persistence.orderId)
+        : "";
+    var shipmethodMatches =
+      !!persistence &&
+      !!persistence.shipmethod &&
+      getShipmethodId(persistence.shipmethod) === currentShipmethod;
+    var confirmationMatches =
+      !!currentConfirmationId &&
+      !!persistedOrderId &&
+      currentConfirmationId === persistedOrderId;
 
-    if (
-      !persistence ||
-      !persistence.saved ||
-      !persistence.shipmethod ||
-      !persistence.totals ||
-      getShipmethodId(persistence.shipmethod) !== currentShipmethod
-    ) {
+    if (!persistence || !persistence.saved || !persistence.totals) {
+      return null;
+    }
+
+    if (!shipmethodMatches && !confirmationMatches) {
       return null;
     }
 
     return cloneObject(persistence.totals);
+  }
+
+  function getOrderConfirmationId(order) {
+    var confirmation;
+    var candidate;
+
+    if (!order || !order.get) {
+      return "";
+    }
+
+    confirmation = order.get("confirmation") || {};
+    candidate =
+      confirmation.internalid ||
+      confirmation.order_id ||
+      confirmation.recordid ||
+      confirmation.id ||
+      order.get("internalid") ||
+      "";
+
+    return candidate ? String(candidate) : "";
   }
 
   function getResolvedShippingAmount(order, sourceSummary) {

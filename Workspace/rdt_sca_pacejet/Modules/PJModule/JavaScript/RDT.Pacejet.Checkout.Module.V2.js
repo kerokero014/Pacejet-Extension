@@ -50,6 +50,12 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     return isFinite(num) ? num : fallback || 0;
   }
 
+  function isConfirmationRoute() {
+    return /confirmation/i.test(
+      (typeof window !== "undefined" && window.location.hash) || ""
+    );
+  }
+
   function normalizeOrigins(origins) {
     return Array.isArray(origins) ? origins : [];
   }
@@ -390,9 +396,11 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     console.log("[Pacejet][TaxDebug] summary snapshot", snapshot);
   }
 
-  function clearSelectedRate() {
+  function clearSelectedRate(preservePersistence) {
     PacejetState.clearSelectedRate();
-    PacejetState.clearPersistenceResult();
+    if (!preservePersistence) {
+      PacejetState.clearPersistenceResult();
+    }
     state.selection.shipCode = null;
     state.selection.cost = null;
     state.selection.carrier = null;
@@ -424,11 +432,12 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
   function syncSelectionFromOrder(order) {
     var selectedRate;
+    var preservePersistence = isConfirmationRoute();
     if (!order || !order.get) return;
 
     var shipmethodId = getShipmethodId(order.get("shipmethod"));
     if (!shipmethodId) {
-      clearSelectedRate();
+      clearSelectedRate(preservePersistence);
       return;
     }
 
@@ -440,7 +449,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       !selectedRate ||
       getShipmethodId(selectedRate.shipmethod) !== shipmethodId
     ) {
-      clearSelectedRate();
+      clearSelectedRate(preservePersistence);
       return;
     }
 
