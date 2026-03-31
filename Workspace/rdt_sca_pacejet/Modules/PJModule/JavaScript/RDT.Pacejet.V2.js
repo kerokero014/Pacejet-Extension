@@ -222,6 +222,32 @@ define("RDT.Pacejet.V2", [
     };
   }
 
+  function getSelectedAccessorialPayload() {
+    var state =
+      PacejetState && PacejetState.get ? PacejetState.get() : null;
+    var selection =
+      state &&
+      state.selection &&
+      state.selection.accessorials &&
+      typeof state.selection.accessorials === "object"
+        ? state.selection.accessorials
+        : {};
+
+    return {
+      callPriorTruck: !!selection.driver_call,
+      jobsite: !!selection.job_site,
+      liftgateTruck: !!selection.lift_gate,
+      residential: !!selection.residential,
+      appointmentTruck: !!selection.schedule_appt,
+      selfStorage: !!selection.self_storage,
+      schoolDelivery: !!selection.school,
+      insideDelivery: !!selection.inside_delivery,
+      accessHazmatParcel: !!selection.hazmat_parcel,
+      dangerousGoods: !!selection.dangerous_goods,
+      noneAdditionalFeesMayApply: !!selection.none_additional_fees_may_app
+    };
+  }
+
   function buildTestApplyPayload(order) {
     var confirmationOrderId = getConfirmationOrderId(order);
     var shipmethod = getShipmethodId(safeGet(order, "shipmethod"));
@@ -383,6 +409,7 @@ define("RDT.Pacejet.V2", [
     }
 
     var summaryData = computePayloadTotals(order, pacejetAmount, renderedSummary);
+    var selectedAccessorials = getSelectedAccessorialPayload();
 
     return {
       orderId: confirmationOrderId,
@@ -397,18 +424,40 @@ define("RDT.Pacejet.V2", [
       estimatedArrivalDate: estimatedArrivalDate || "",
       quoteJson: quoteJson || "",
 
-      callPriorTruck: callPriorTruck,
-      jobsite: jobsite,
-      liftgateTruck: liftgateTruck,
-      residential: residential,
-      appointmentTruck: appointmentTruck,
-      selfStorage: selfStorage,
-      schoolDelivery: schoolDelivery,
-      insideDelivery: insideDelivery,
-      accessHazmatParcel: accessHazmatParcel,
-      dangerousGoods: dangerousGoods,
-      noneAdditionalFeesMayApply: noneAdditionalFeesMayApply
+      callPriorTruck:
+        selectedAccessorials.callPriorTruck || asBooleanLike(callPriorTruck),
+      jobsite: selectedAccessorials.jobsite || asBooleanLike(jobsite),
+      liftgateTruck:
+        selectedAccessorials.liftgateTruck || asBooleanLike(liftgateTruck),
+      residential:
+        selectedAccessorials.residential || asBooleanLike(residential),
+      appointmentTruck:
+        selectedAccessorials.appointmentTruck || asBooleanLike(appointmentTruck),
+      selfStorage:
+        selectedAccessorials.selfStorage || asBooleanLike(selfStorage),
+      schoolDelivery:
+        selectedAccessorials.schoolDelivery || asBooleanLike(schoolDelivery),
+      insideDelivery:
+        selectedAccessorials.insideDelivery || asBooleanLike(insideDelivery),
+      accessHazmatParcel:
+        selectedAccessorials.accessHazmatParcel || asBooleanLike(accessHazmatParcel),
+      dangerousGoods:
+        selectedAccessorials.dangerousGoods || asBooleanLike(dangerousGoods),
+      noneAdditionalFeesMayApply:
+        selectedAccessorials.noneAdditionalFeesMayApply ||
+        asBooleanLike(noneAdditionalFeesMayApply)
     };
+  }
+
+  function asBooleanLike(value) {
+    return (
+      value === true ||
+      value === "T" ||
+      value === "true" ||
+      value === "on" ||
+      value === 1 ||
+      value === "1"
+    );
   }
 
   function canSendTestApply(payload) {
