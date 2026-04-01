@@ -28,6 +28,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
   var MODEL_WIRED = false;
   var INITIAL_FETCH_DONE = false;
   var REFRESH_TIMER = null;
+  var REVIEW_SYNC_TIMER = null;
   var SELECTION_APPLY_TOKEN = 0;
   var SUMMARY_FETCH_IN_FLIGHT = false;
   var NONE_ACCESSORIAL_ID = "none_additional_fees_may_app";
@@ -69,6 +70,12 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
   function isConfirmationRoute() {
     return /confirmation/i.test(
+      (typeof window !== "undefined" && window.location.hash) || ""
+    );
+  }
+
+  function isReviewRoute() {
+    return /review/i.test(
       (typeof window !== "undefined" && window.location.hash) || ""
     );
   }
@@ -495,6 +502,47 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     }
   }
 
+  function waitForReviewHostThenRender(order) {
+    var tries = 0;
+    var maxTries = 30;
+
+    if (!isReviewRoute()) {
+      if (REVIEW_SYNC_TIMER) {
+        clearInterval(REVIEW_SYNC_TIMER);
+        REVIEW_SYNC_TIMER = null;
+      }
+      return;
+    }
+
+    if (REVIEW_SYNC_TIMER) {
+      clearInterval(REVIEW_SYNC_TIMER);
+      REVIEW_SYNC_TIMER = null;
+    }
+
+    REVIEW_SYNC_TIMER = setInterval(function () {
+      var $host = $(
+        ".order-wizard-showshipments-module-shipping-details-method, " +
+        ".order-wizard-showshipments-actionable-module-shipping-details-method"
+      ).first();
+
+      if ($host.length) {
+        clearInterval(REVIEW_SYNC_TIMER);
+        REVIEW_SYNC_TIMER = null;
+
+        if (PacejetUI && PacejetUI.renderReviewSelection) {
+          PacejetUI.renderReviewSelection(order, state);
+        }
+        return;
+      }
+
+      tries += 1;
+      if (tries >= maxTries) {
+        clearInterval(REVIEW_SYNC_TIMER);
+        REVIEW_SYNC_TIMER = null;
+      }
+    }, 150);
+  }
+
   function ensureModelWired(order) {
     if (!order || MODEL_WIRED) {
       return;
@@ -836,6 +884,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
       ensureModelWired(order);
       syncRouteUi(order);
+      waitForReviewHostThenRender(order);
     }
   };
 });

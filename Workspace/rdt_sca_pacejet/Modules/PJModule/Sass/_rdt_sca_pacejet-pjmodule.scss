@@ -861,9 +861,9 @@ body.rdt-pj-prehide .order-wizard-shipmethod-module .rdt-pj-wrapper * {
 
 /** #Review SHipping MOdule Option **/
 .rdt-mui-shipping-card {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
+	// display: flex;
+	// justify-content: space-between;
+	// align-items: center;
 	padding: 20px;
 	margin-top: 16px;
 	border: 1px solid #272525;
@@ -882,8 +882,8 @@ body.rdt-pj-prehide .order-wizard-shipmethod-module .rdt-pj-wrapper * {
 
 .rdt-mui-chip {
 	display: inline-block;
-	padding: 4px 10px;
-	font-size: 12px;
+	padding: 5px 5px;
+	font-size: 17px;
 	font-weight: 500;
 	border-radius: 3px;
 	background: #e3f2fd;
@@ -902,6 +902,7 @@ body.rdt-pj-prehide .order-wizard-shipmethod-module .rdt-pj-wrapper * {
 	font-size: 20px;
 	font-weight: 600;
 	color: black;
+	margin: 4px 0;
 }
 
 .rdt-mui-change-btn {
