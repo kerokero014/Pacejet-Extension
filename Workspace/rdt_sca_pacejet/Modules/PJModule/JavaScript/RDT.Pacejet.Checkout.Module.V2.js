@@ -45,6 +45,23 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
   var state = PacejetState.get();
 
+  function getRenderableRates(rates, source) {
+    var list = Array.isArray(rates) ? rates : [];
+
+    if (
+      PacejetService &&
+      typeof PacejetService.filterRatesBySelectedAccessorials === "function"
+    ) {
+      return PacejetService.filterRatesBySelectedAccessorials(
+        list,
+        normalizeAccessorialSelection(state.selection.accessorials),
+        source || "checkout-render"
+      );
+    }
+
+    return list;
+  }
+
   function asNumber(value, fallback) {
     var num = Number(value);
     return isFinite(num) ? num : fallback || 0;
@@ -498,10 +515,18 @@ define("RDT.Pacejet.Checkout.Module.V2", [
      * ACCESSORIAL EDIT (NO RERATE)
      * =============================== */
     if (payload.accessorials) {
-      state.selection.accessorials = payload.accessorials;
+      var normalizedAccessorials = normalizeAccessorialSelection(
+        payload.accessorials
+      );
+
+      PacejetState.setAccessorials(normalizedAccessorials);
       state.flags.accessorialsDirty = true;
       clearSelectedRate();
       PacejetUI.setContinueButtonState(false);
+      console.log(
+        "[Pacejet] checkout stored accessorial selection",
+        JSON.stringify(normalizedAccessorials)
+      );
       return;
     }
 
@@ -511,6 +536,12 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     if (payload.showRates === true) {
       state.flags.ratesVisible = true;
       state.flags.accessorialsDirty = false;
+      console.log(
+        "[Pacejet] checkout requesting rates with accessorials",
+        JSON.stringify(
+          normalizeAccessorialSelection(state.selection.accessorials)
+        )
+      );
       refreshFromOrder(order, { mode: "hard", forceShowRates: true });
       return;
     }
@@ -626,7 +657,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     }
 
     if (!state.flags.ratesVisible) {
-      PacejetUI.render($host, state.cache.lastRates || [], state, {
+      PacejetUI.render($host, getRenderableRates(state.cache.lastRates || [], "hidden-render-cache"), state, {
         deferClear: softRefresh,
         showRates: false,
         loading: false
@@ -651,7 +682,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         PacejetUI.clear($host);
         PacejetUI.showLoading($host);
       } else {
-        PacejetUI.render($host, state.cache.lastRates || [], state, {
+        PacejetUI.render($host, getRenderableRates(state.cache.lastRates || [], "loading-render-cache"), state, {
           showRates: false,
           loading: true
         });
@@ -660,9 +691,10 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
     PacejetService.fetchRates(order)
       .then(function (rates) {
+        var renderableRates = getRenderableRates(rates, "fetch-success-render");
         state.flags.ratesLoading = false;
         syncSelectionFromOrder(order);
-        PacejetUI.render($host, rates, state, {
+        PacejetUI.render($host, renderableRates, state, {
           deferClear: softRefresh,
           showRates: !!state.flags.ratesVisible
         });
@@ -734,7 +766,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         if (state.flags.ratesVisible) {
           refreshFromOrder(order, { mode: "hard" });
         } else {
-          PacejetUI.render($host, state.cache.lastRates || [], state, {
+          PacejetUI.render($host, getRenderableRates(state.cache.lastRates || [], "wait-host-cache"), state, {
             showRates: false,
             loading: false
           });

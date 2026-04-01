@@ -147,6 +147,10 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
       $chk.on("change", function () {
         applyAccessorialSelection(a.id, this.checked);
 
+        if (PacejetState && PacejetState.setAccessorials) {
+          PacejetState.setAccessorials(jQuery.extend({}, accessorialState));
+        }
+
         $box.replaceWith(renderAccessorials());
 
         emitSelect({

@@ -77,6 +77,30 @@ define("RDT.Pacejet.AccessorialMatrix", [], function () {
         inside_delivery: false,
         hazmat_parcel: false,
         dangerous_goods: true
+      },
+      ODFL: {
+        driver_call: true,
+        job_site: true,
+        lift_gate: true,
+        residential: true,
+        schedule_appt: true,
+        self_storage: false,
+        school: false,
+        inside_delivery: true,
+        hazmat_parcel: false,
+        dangerous_goods: false
+      },
+      RL_CARRIERS: {
+        driver_call: false, // ← IMPORTANT based on your table
+        job_site: false,
+        lift_gate: true,
+        residential: true,
+        schedule_appt: false,
+        self_storage: false,
+        school: false,
+        inside_delivery: true,
+        hazmat_parcel: false,
+        dangerous_goods: true
       }
     },
 

@@ -86,6 +86,10 @@ define("RDT.Pacejet.Service", [
       : {};
   }
 
+  function cloneSelection(selection) {
+    return jQuery.extend({}, normalizeAccessorialSelection(selection));
+  }
+
   function buildSafeLiveOrderPayload(data) {
     var payload = data || {};
 
@@ -362,28 +366,42 @@ define("RDT.Pacejet.Service", [
       .replace(/[^A-Z0-9_]/g, "");
   }
 
-  function normalizeCarrierLabel(name) {
+  function normalizeCarrierLabel(name, serviceName) {
     name = String(name || "").toUpperCase();
+    serviceName = String(serviceName || "").toUpperCase();
 
-    if (name.includes("FEDEX") && name.includes("FREIGHT"))
-      return "FedEx Freight";
-    if (name.includes("FEDEX")) return "FedEx";
+    if (
+      (name.includes("FEDEX") && name.includes("FREIGHT")) ||
+      (name.includes("FEDEX") &&
+        (serviceName.includes("FREIGHT PRIORITY") ||
+          serviceName.includes("FREIGHT ECONOMY") ||
+          serviceName.includes("FEDEX FREIGHT")))
+    )
+      return "FEDEX_FREIGHT";
+
+    if (name.includes("FEDEX")) return "FEDEX";
     if (name.includes("UPS")) return "UPS";
     if (name.includes("SAIA")) return "SAIA";
     if (name.includes("XPO")) return "XPO";
+    if (name.includes("ESTES")) return "ESTES";
+    if (name.includes("AAA") || name.includes("COOPER")) return "AAA_COOPER";
+    if (name.includes("OLD DOMINION") || name.includes("ODFL")) return "ODFL";
+    if (name.includes("R&L") || name.includes("RL")) return "RL_CARRIERS";
 
     return name
       .replace(/[^A-Z ]/g, "")
       .trim()
-      .split(" ")[0];
+      .replace(/\s+/g, "_");
   }
-
   function extractCarrierSet(rate) {
     var set = {};
+    var defaultCarrier = rate.carrierName || rate.carrier || "";
+    var defaultService = rate.serviceName || rate.service || "";
 
     (rate.origins || []).forEach(function (o) {
       var c = normalizeCarrierLabel(
-        o.carrier || rate.carrierName || rate.carrier
+        o.carrier || defaultCarrier,
+        o.service || defaultService
       );
       if (c) set[c] = true;
     });
@@ -393,7 +411,9 @@ define("RDT.Pacejet.Service", [
         set[
           normalizeCarrierLabel(
             rate._modeBreakdown.parcel.carrierName ||
-              rate._modeBreakdown.parcel.carrier
+              rate._modeBreakdown.parcel.carrier,
+            rate._modeBreakdown.parcel.serviceName ||
+              rate._modeBreakdown.parcel.service
           )
         ] = true;
       }
@@ -401,13 +421,120 @@ define("RDT.Pacejet.Service", [
         set[
           normalizeCarrierLabel(
             rate._modeBreakdown.ltl.carrierName ||
-              rate._modeBreakdown.ltl.carrier
+              rate._modeBreakdown.ltl.carrier,
+            rate._modeBreakdown.ltl.serviceName ||
+              rate._modeBreakdown.ltl.service
           )
         ] = true;
       }
     }
 
+    if (!Object.keys(set).length) {
+      var primary = normalizeCarrierLabel(defaultCarrier, defaultService);
+      if (primary) set[primary] = true;
+    }
+
     return Object.keys(set);
+  }
+
+  function filterRatesBySelectedAccessorials(rates, accessorialSelection, source) {
+    if (!Array.isArray(rates) || !rates.length) return rates;
+
+    var selected = cloneSelection(
+      accessorialSelection ||
+        (state && state.selection && state.selection.accessorials)
+    );
+    var filterSource = source || "live";
+
+    console.log(
+      "[Pacejet] selected accessorials at filter time (" + filterSource + ")",
+      JSON.stringify(selected)
+    );
+
+    if (!hasAnyAccessorials(selected)) {
+      console.log("[Pacejet] No accessorial filtering applied");
+      return rates;
+    }
+
+    var matrix = AccessorialMatrix && AccessorialMatrix.carriers;
+    if (!matrix) return rates;
+
+    var filtered = rates.filter(function (rate) {
+      var carrierSet = extractCarrierSet(rate);
+      var acc;
+      var idx;
+
+      console.log(
+        "[Pacejet] checking rate carriers",
+        rate.carrierName || rate.carrier || "",
+        "=>",
+        carrierSet
+      );
+
+      if (!carrierSet.length) {
+        console.warn(
+          "[Pacejet] No normalized carrier match for rate:",
+          rate.carrierName || rate.carrier || "",
+          "=> suppressing"
+        );
+        return false;
+      }
+
+      for (idx = 0; idx < carrierSet.length; idx += 1) {
+        var carrierKey = carrierSet[idx];
+        var rules = matrix[carrierKey];
+
+        console.log(
+          "[Pacejet] carrier normalization",
+          rate.carrierName || rate.carrier || "",
+          "/",
+          rate.serviceName || rate.service || "",
+          "=>",
+          carrierKey,
+          rules ? "matched" : "unmapped"
+        );
+
+        if (!rules) {
+          console.warn(
+            "[Pacejet] No matrix rules for carrier:",
+            carrierKey,
+            "=> suppressing"
+          );
+          return false;
+        }
+
+        for (acc in selected) {
+          if (!Object.prototype.hasOwnProperty.call(selected, acc)) continue;
+          if (acc === NONE_ACCESSORIAL_ID) continue;
+          if (!selected[acc]) continue;
+
+          if (rules[acc] !== true) {
+            console.log(
+              "[Pacejet] Removing rate:",
+              carrierKey,
+              "=> does not support",
+              acc
+            );
+            return false;
+          }
+        }
+      }
+
+      return true;
+    });
+
+    console.log(
+      "[Pacejet] Accessorial filter result",
+      rates.map(function (r) {
+        return r.carrierName || r.carrier;
+      }),
+      "=>",
+      filtered.map(function (r) {
+        return r.carrierName || r.carrier;
+      })
+    );
+
+    return filtered;
   }
 
   function buildSmartCarrierTag(rate) {
@@ -557,86 +684,6 @@ define("RDT.Pacejet.Service", [
       return true;
     });
   }
-
-  // function applyFreightMarkup(rate, rules) {
-  //   if (!rate || !Array.isArray(rate.origins)) return rate;
-
-  //   var baseFreight = 0;
-  //   var totalFuel = 0;
-  //   var totalFees = 0;
-  //   var shipmentMode = String(rate.mode || rate.shipMode || "")
-  //     .toUpperCase()
-  //     .trim();
-
-  //   rate.origins.forEach(function (origin) {
-  //     var raw = origin && origin.raw ? origin.raw : {};
-
-  //     var fuel = num(
-  //       origin.fuelSurcharge ||
-  //         origin.fuel ||
-  //         raw.fuelSurcharge ||
-  //         raw.fuel ||
-  //         0
-  //     );
-
-  //     var fees = num(
-  //       origin.totalServiceFees ||
-  //         origin.serviceFees ||
-  //         raw.totalServiceFees ||
-  //         raw.serviceFees ||
-  //         0
-  //     );
-
-  //     var freight = num(
-  //       origin.baseFreight ||
-  //         origin.consignorFreight ||
-  //         origin.freight ||
-  //         raw.consignorFreight ||
-  //         raw.totalFreight ||
-  //         raw.listFreight ||
-  //         0
-  //     );
-
-  //     if (!freight) {
-  //       var originTotal = num(origin.cost || raw.totalCost || 0);
-  //       if (originTotal > 0) {
-  //         freight = Math.max(originTotal - fuel - fees, 0);
-  //       }
-  //     }
-
-  //     baseFreight += freight;
-  //     totalFuel += fuel;
-  //     totalFees += fees;
-  //   });
-
-  //   if (
-  //     !shipmentMode ||
-  //     (shipmentMode !== "LTL" && shipmentMode !== "PARCEL")
-  //   ) {
-  //     shipmentMode =
-  //       String(rate.serviceName || rate.service || "")
-  //         .toUpperCase()
-  //         .indexOf("FREIGHT") !== -1
-  //         ? "LTL"
-  //         : "PARCEL";
-  //   }
-
-  //   var pacejetTotal = num(rate.cost || 0);
-
-  //   rate.baseCost = +pacejetTotal.toFixed(2);
-  //   rate.baseFreight = +baseFreight.toFixed(2);
-  //   rate.totalFuel = +totalFuel.toFixed(2);
-  //   rate.totalFees = +totalFees.toFixed(2);
-
-  //   rate.markupPercent = 0;
-  //   rate.markupMode = shipmentMode;
-  //   rate.markupAmount = 0;
-
-  //   // final customer price
-  //   rate.finalCost = +pacejetTotal.toFixed(2);
-
-  //   return rate;
-  // }
 
   function applyFreightMarkup(rate, rules) {
     var baseCost = num(
@@ -1379,8 +1426,16 @@ define("RDT.Pacejet.Service", [
       return jQuery.Deferred().reject(new Error("Cart is empty")).promise();
     }
 
+    var selectedAccessorials = cloneSelection(
+      state.selection && state.selection.accessorials
+    );
     var opts = buildOptionsSnapshot(order);
-    opts.accessorials = (state.selection && state.selection.accessorials) || {};
+    opts.accessorials = cloneSelection(selectedAccessorials);
+
+    console.log(
+      "[Pacejet] fetchRates using accessorials",
+      JSON.stringify(selectedAccessorials)
+    );
 
     var cartSnapshot = {
       shipping: shipping.address || shipping,
@@ -1407,6 +1462,7 @@ define("RDT.Pacejet.Service", [
       items: items,
       opts: opts
     };
+    state.cache.lastRequestedAccessorials = cloneSelection(selectedAccessorials);
 
     var fullHash = hashCartSnapshot(shipping, items, opts);
     var baseHash = hashCartSnapshot(shipping, items, {
@@ -1419,7 +1475,17 @@ define("RDT.Pacejet.Service", [
       Array.isArray(state.cache.lastRates) &&
       state.cache.lastRates.length
     ) {
-      return jQuery.Deferred().resolve(state.cache.lastRates).promise();
+      console.log("[Pacejet] Returning cached rates for hash match");
+      return jQuery
+        .Deferred()
+        .resolve(
+          filterRatesBySelectedAccessorials(
+            state.cache.lastRates,
+            selectedAccessorials,
+            "full-hash-cache"
+          )
+        )
+        .promise();
     }
 
     if (state.cache.baseHash && state.cache.baseHash !== baseHash) {
@@ -1441,8 +1507,12 @@ define("RDT.Pacejet.Service", [
 
     return requestRates(outboundPayload).then(function (serviceResponse) {
       if (state.cache._activeRequestId !== thisRequestId) {
-        console.warn("[Pacejet] Ignoring stale rate response.");
-        return state.cache.lastRates || [];
+        console.warn("[Pacejet] Ignoring stale rate response. Using filtered cache.");
+        return filterRatesBySelectedAccessorials(
+          state.cache.lastRates || [],
+          selectedAccessorials,
+          "stale-response-cache"
+        );
       }
 
       var args = normalizeModeResponses(serviceResponse, payloads);
@@ -1519,8 +1589,12 @@ define("RDT.Pacejet.Service", [
       merged = applyShipmentSuppression(merged);
       merged = RateMapping.decorateRates(merged);
 
-      var selectedAccessorials =
-        (state.selection && state.selection.accessorials) || {};
+      merged = filterRatesBySelectedAccessorials(
+        merged,
+        selectedAccessorials,
+        "merged-final"
+      );
+      // ! TODO: This will be more efficient if done before merging modes, but we need to do it after carrier limits and suppression for now since those can remove rates that have accessorials
 
       if (!hasAnyAccessorials(selectedAccessorials)) {
         state.cache.baseHash = baseHash;
@@ -1559,9 +1633,12 @@ define("RDT.Pacejet.Service", [
 
       if (!merged || !merged.length) {
         console.warn(
-          "[Pacejet] Final merged empty — preserving previous rates."
+          "[Pacejet] Final merged empty after filtering",
+          JSON.stringify(selectedAccessorials)
         );
-        return state.cache.lastRates || [];
+        state.cache.lastFullHash = fullHash;
+        state.cache.lastRates = [];
+        return [];
       }
 
       state.cache.lastFullHash = fullHash;
@@ -1579,6 +1656,7 @@ define("RDT.Pacejet.Service", [
     fetchRates: fetchRates,
     applyRateToCart: applyRateToCart,
     getAllowedAccessorialsForCarrier: getAllowedAccessorialsForCarrier,
+    filterRatesBySelectedAccessorials: filterRatesBySelectedAccessorials,
 
     applyCarrierLimits: applyCarrierLimits,
     applyDropShipSuppression: applyDropShipSuppression,

@@ -68,25 +68,6 @@ define("RDT.Pacejet.Pacejet.Payload", ["RDT.Pacejet.Config"], function (
   }
 
   // --------------------------------------------------
-  // Item classification
-  // --------------------------------------------------
-
-  function classifyItem(it) {
-    var totalWeight = num(it.weight) * num(it.quantity || 1);
-
-    var maxDim = Math.max(num(it.length), num(it.width), num(it.height));
-
-    var isLTL =
-      String(it.packageType || "").toUpperCase() === "PALLET" ||
-      totalWeight >= 150 ||
-      maxDim >= 48;
-
-    return {
-      isLTL: isLTL
-    };
-  }
-
-  // --------------------------------------------------
   // Address helpers
   // --------------------------------------------------
 
