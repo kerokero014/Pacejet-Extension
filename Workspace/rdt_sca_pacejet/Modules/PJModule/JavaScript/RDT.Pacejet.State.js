@@ -3,6 +3,8 @@
 define("RDT.Pacejet.State", [], function () {
   "use strict";
 
+  var NONE_ACCESSORIAL_ID = "none_additional_fees_may_app";
+
   function clone(value) {
     var key;
     var copy;
@@ -39,7 +41,8 @@ define("RDT.Pacejet.State", [], function () {
       cost: null,
       transitDays: null,
       origins: [],
-      accessorials: {}
+      accessorials: {},
+      forcedAccessorials: {}
     },
 
     flags: {
@@ -74,8 +77,33 @@ define("RDT.Pacejet.State", [], function () {
     },
 
     setAccessorials: function (acc) {
-      state.selection.accessorials =
-        acc && typeof acc === "object" && !Array.isArray(acc) ? acc : {};
+      var selection =
+        acc && typeof acc === "object" && !Array.isArray(acc) ? clone(acc) : {};
+      var forced = clone(state.selection.forcedAccessorials || {});
+
+      Object.keys(forced).forEach(function (key) {
+        if (forced[key]) {
+          selection[key] = true;
+        }
+      });
+
+      if (Object.keys(forced).some(function (key) { return forced[key]; })) {
+        selection[NONE_ACCESSORIAL_ID] = false;
+      }
+
+      state.selection.accessorials = selection;
+    },
+
+    setForcedAccessorials: function (acc) {
+      var forced =
+        acc && typeof acc === "object" && !Array.isArray(acc) ? clone(acc) : {};
+
+      state.selection.forcedAccessorials = forced;
+      this.setAccessorials(state.selection.accessorials);
+    },
+
+    getForcedAccessorials: function () {
+      return clone(state.selection.forcedAccessorials || {});
     },
 
     setSelectedRate: function (rate) {
@@ -188,7 +216,8 @@ define("RDT.Pacejet.State", [], function () {
         cost: null,
         transitDays: null,
         origins: [],
-        accessorials: {}
+        accessorials: {},
+        forcedAccessorials: {}
       };
 
       state.selectedRate = null;

@@ -704,6 +704,13 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       state.flags.ratesVisible = true;
     }
 
+    if (
+      PacejetService &&
+      typeof PacejetService.syncForcedAccessorialsFromOrder === "function"
+    ) {
+      PacejetService.syncForcedAccessorialsFromOrder(order);
+    }
+
     if (!state.flags.ratesVisible) {
       PacejetUI.render($host, getRenderableRates(state.cache.lastRates || [], "hidden-render-cache"), state, {
         deferClear: softRefresh,

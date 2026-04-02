@@ -26,6 +26,8 @@ define("RDT.Pacejet.Service", [
   var state = PacejetState.get();
   var requestCounter = 0;
   var NONE_ACCESSORIAL_ID = "none_additional_fees_may_app";
+  var HAZMAT_PARCEL_ID = "hazmat_parcel";
+  var DANGEROUS_GOODS_ID = "dangerous_goods";
   var ACCESSORIAL_MAP = {
     driver_call: "DRIVER_CALL",
     job_site: "JOB_SITE",
@@ -35,7 +37,7 @@ define("RDT.Pacejet.Service", [
     self_storage: "SELF_STORAGE",
     school: "SCHOOL",
     inside_delivery: "INSIDE_DELIVERY",
-    hazmat_parcel: "HAZMAT",
+    hazmat_parcel: "HAZMAT_PARCEL",
     dangerous_goods: "DANGEROUS_GOODS"
   };
 
@@ -248,6 +250,21 @@ define("RDT.Pacejet.Service", [
     });
   }
 
+  function removeForcedAccessorials(accessorials) {
+    var selected = cloneSelection(accessorials);
+    var forced = cloneSelection(
+      state && state.selection && state.selection.forcedAccessorials
+    );
+
+    Object.keys(forced).forEach(function (key) {
+      if (forced[key]) {
+        delete selected[key];
+      }
+    });
+
+    return selected;
+  }
+
   function normalizeCarrierKey(rate) {
     return String(rate.carrierCode || rate.carrier || rate.carrierName || "")
       .toUpperCase()
@@ -393,6 +410,55 @@ define("RDT.Pacejet.Service", [
       .trim()
       .replace(/\s+/g, "_");
   }
+
+  function getMaxDimension(item) {
+    return Math.max(
+      num(item && item.length),
+      num(item && item.width),
+      num(item && item.height)
+    );
+  }
+
+  function isPalletPackageType(packageType) {
+    return /PALLET/i.test(String(packageType || ""));
+  }
+
+  function isLtlStyleItem(item) {
+    return (
+      isPalletPackageType(item && item.packageType) ||
+      num(item && item.weight) >= 150 ||
+      getMaxDimension(item) >= 48
+    );
+  }
+
+  function deriveForcedAccessorials(items) {
+    var forced = {};
+
+    (items || []).forEach(function (item) {
+      if (!item || !item.isHazmat) {
+        return;
+      }
+
+      if (isLtlStyleItem(item)) {
+        forced[DANGEROUS_GOODS_ID] = true;
+      } else {
+        forced[HAZMAT_PARCEL_ID] = true;
+      }
+    });
+
+    return forced;
+  }
+
+  function syncForcedAccessorialsFromOrder(order) {
+    var items = buildItemsSnapshot(order);
+
+    if (PacejetState && PacejetState.setForcedAccessorials) {
+      PacejetState.setForcedAccessorials(deriveForcedAccessorials(items));
+    }
+
+    return items;
+  }
+
   function extractCarrierSet(rate) {
     var set = {};
     var defaultCarrier = rate.carrierName || rate.carrier || "";
@@ -444,14 +510,17 @@ define("RDT.Pacejet.Service", [
       accessorialSelection ||
         (state && state.selection && state.selection.accessorials)
     );
+    var filterableSelection = removeForcedAccessorials(selected);
     var filterSource = source || "live";
 
     console.log(
       "[Pacejet] selected accessorials at filter time (" + filterSource + ")",
-      JSON.stringify(selected)
+      JSON.stringify(selected),
+      "filterable:",
+      JSON.stringify(filterableSelection)
     );
 
-    if (!hasAnyAccessorials(selected)) {
+    if (!hasAnyAccessorials(filterableSelection)) {
       console.log("[Pacejet] No accessorial filtering applied");
       return rates;
     }
@@ -503,10 +572,10 @@ define("RDT.Pacejet.Service", [
           return false;
         }
 
-        for (acc in selected) {
-          if (!Object.prototype.hasOwnProperty.call(selected, acc)) continue;
+        for (acc in filterableSelection) {
+          if (!Object.prototype.hasOwnProperty.call(filterableSelection, acc)) continue;
           if (acc === NONE_ACCESSORIAL_ID) continue;
-          if (!selected[acc]) continue;
+          if (!filterableSelection[acc]) continue;
 
           if (rules[acc] !== true) {
             console.log(
@@ -970,6 +1039,9 @@ define("RDT.Pacejet.Service", [
         Number(item.get && item.get("custitem_pacejet_item_width")) || 0;
       var height =
         Number(item.get && item.get("custitem_pacejet_item_height")) || 0;
+      var packageType =
+        String((item.get && item.get("custitem_package_type")) || "").trim();
+      var isHazmat = asBool(item.get && item.get("custitem13"));
 
       // Dropship detection (try multiple sources)
       var dsRaw =
@@ -1058,6 +1130,8 @@ define("RDT.Pacejet.Service", [
         length: length,
         width: width,
         height: height,
+        packageType: packageType,
+        isHazmat: isHazmat,
 
         dropShip: dropShip,
         itemtype: (item.get && item.get("itemtype")) || null
@@ -1421,7 +1495,7 @@ define("RDT.Pacejet.Service", [
       return jQuery.Deferred().resolve([]).promise();
     }
 
-    var items = buildItemsSnapshot(order);
+    var items = syncForcedAccessorialsFromOrder(order);
     if (!items.length) {
       return jQuery.Deferred().reject(new Error("Cart is empty")).promise();
     }
@@ -1449,6 +1523,8 @@ define("RDT.Pacejet.Service", [
           length: it.length,
           width: it.width,
           height: it.height,
+          packageType: it.packageType || "",
+          isHazmat: !!it.isHazmat,
           isDropShip: !!it.dropShip,
           dropShip: !!it.dropShip,
           originKey: it.originKey || "",
@@ -1655,6 +1731,7 @@ define("RDT.Pacejet.Service", [
   return {
     fetchRates: fetchRates,
     applyRateToCart: applyRateToCart,
+    syncForcedAccessorialsFromOrder: syncForcedAccessorialsFromOrder,
     getAllowedAccessorialsForCarrier: getAllowedAccessorialsForCarrier,
     filterRatesBySelectedAccessorials: filterRatesBySelectedAccessorials,
 

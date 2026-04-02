@@ -51,12 +51,66 @@ define("RDT.Pacejet.Pacejet.Payload", ["RDT.Pacejet.Config"], function (
     };
   }
 
+  function asBool(value) {
+    if (value === true || value === false) return value;
+
+    if (typeof value === "string") {
+      return /^(true|t|yes|y|1)$/i.test(value);
+    }
+
+    return value === 1;
+  }
+
+  function getMaxDimension(item) {
+    return Math.max(num(item.length), num(item.width), num(item.height));
+  }
+
+  function isPalletPackageType(packageType) {
+    return /PALLET/i.test(String(packageType || ""));
+  }
+
+  function isLtlItem(item) {
+    return (
+      isPalletPackageType(item.packageType) ||
+      num(item.weight) >= 150 ||
+      getMaxDimension(item) >= 48
+    );
+  }
+
+  function isParcelItem(item) {
+    return !isLtlItem(item);
+  }
+
+  function hasHazmatParcelItems(items) {
+    return (items || []).some(function (item) {
+      return item && item.isHazmat && isParcelItem(item);
+    });
+  }
+
+  function hasHazmatLtlItems(items) {
+    return (items || []).some(function (item) {
+      return item && item.isHazmat && isLtlItem(item);
+    });
+  }
+
   function buildOptions(opts) {
     var options = {};
+    var services = buildShipmentServicesFromAccessorials(opts && opts.accessorials);
+    var enforcedServices = [];
 
-    var services = buildShipmentServicesFromAccessorials(
-      opts && opts.accessorials
-    );
+    if (hasHazmatParcelItems(opts && opts.items)) {
+      enforcedServices.push("HAZMAT_PARCEL");
+    }
+
+    if (hasHazmatLtlItems(opts && opts.items)) {
+      enforcedServices.push("DANGEROUS_GOODS");
+    }
+
+    enforcedServices.forEach(function (code) {
+      if (services.indexOf(code) === -1) {
+        services.push(code);
+      }
+    });
 
     if (services.length) {
       options.ShipmentServices = services.map(function (code) {
@@ -202,7 +256,8 @@ define("RDT.Pacejet.Pacejet.Payload", ["RDT.Pacejet.Config"], function (
         weight: Number(item.get("weight")) || 0,
         quantity: qty,
 
-        packageType: item.get("custitem_package_type") || ""
+        packageType: item.get("custitem_package_type") || "",
+        isHazmat: asBool(item.get("custitem13"))
       });
     });
 
@@ -215,7 +270,11 @@ define("RDT.Pacejet.Pacejet.Payload", ["RDT.Pacejet.Config"], function (
           Origin: getOrigin(), // default origin
           Destination: destination,
           PackageDetailsList: buildPackageDetailsFromItems(allItems, true),
-          Options: buildOptions(opts)
+          Options: buildOptions(
+            Object.assign({}, opts, {
+              items: allItems
+            })
+          )
         }
       }
     ];

@@ -1,6 +1,9 @@
 /// <amd-module name="RDT.Pacejet.UI"/>
 
-define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, PacejetState) {
+define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (
+  jQuery,
+  PacejetState
+) {
   "use strict";
 
   var $ = jQuery;
@@ -32,10 +35,47 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
 
   function getAllowedAccessorials() {
     var state = PacejetState && PacejetState.get ? PacejetState.get() : null;
-    return state && state.allowedAccessorials ? state.allowedAccessorials : null;
+    return state && state.allowedAccessorials
+      ? state.allowedAccessorials
+      : null;
+  }
+
+  function getForcedAccessorials() {
+    if (PacejetState && PacejetState.getForcedAccessorials) {
+      return PacejetState.getForcedAccessorials();
+    }
+
+    var state = PacejetState && PacejetState.get ? PacejetState.get() : null;
+    return state && state.selection && state.selection.forcedAccessorials
+      ? state.selection.forcedAccessorials
+      : {};
+  }
+
+  function syncAccessorialStateFromStore() {
+    var selected = {};
+
+    if (PacejetState && PacejetState.get) {
+      var state = PacejetState.get();
+      selected =
+        state && state.selection && state.selection.accessorials
+          ? state.selection.accessorials
+          : {};
+    }
+
+    ACCESSORIALS.forEach(function (a) {
+      accessorialState[a.id] = !!selected[a.id];
+    });
   }
 
   function applyAccessorialSelection(accessorialId, checked) {
+    var forcedAccessorials = getForcedAccessorials();
+
+    if (forcedAccessorials[accessorialId]) {
+      accessorialState[accessorialId] = true;
+      accessorialState[NONE_ACCESSORIAL_ID] = false;
+      return;
+    }
+
     accessorialState[accessorialId] = checked;
 
     if (accessorialId === NONE_ACCESSORIAL_ID && checked) {
@@ -53,7 +93,16 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
   }
 
   function isAccessorialDisabled(accessorialId, allowedAccessorials) {
-    if (accessorialId !== NONE_ACCESSORIAL_ID && accessorialState[NONE_ACCESSORIAL_ID]) {
+    var forcedAccessorials = getForcedAccessorials();
+
+    if (forcedAccessorials[accessorialId]) {
+      return true;
+    }
+
+    if (
+      accessorialId !== NONE_ACCESSORIAL_ID &&
+      accessorialState[NONE_ACCESSORIAL_ID]
+    ) {
       return true;
     }
 
@@ -107,8 +156,11 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
   }
 
   function renderAccessorials() {
+    syncAccessorialStateFromStore();
+
     var $box = $("<div/>").addClass("rdt-pj-accessorials");
     var allowedAccessorials = getAllowedAccessorials();
+    var forcedAccessorials = getForcedAccessorials();
     var $noneGroup = $("<div/>").addClass("rdt-pj-accessorials-none");
     var $otherGroup = $("<div/>").addClass("rdt-pj-accessorials-grid");
 
@@ -144,7 +196,16 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
         $label.attr("aria-disabled", "true");
       }
 
+      if (forcedAccessorials[a.id]) {
+        $row.addClass("rdt-pj-accessorial--forced");
+      }
+
       $chk.on("change", function () {
+        if (forcedAccessorials[a.id] && !this.checked) {
+          this.checked = true;
+          return;
+        }
+
         applyAccessorialSelection(a.id, this.checked);
 
         if (PacejetState && PacejetState.setAccessorials) {
@@ -271,22 +332,73 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
   }
 
   function getEstimatedArrivalDate(rate) {
-    var days = Number(rate.transitDays);
-    if (!isFinite(days) || days <= 0) return "";
+    var raw =
+      (rate &&
+        (rate.estimatedArrivalDate ||
+          rate.estDelivery ||
+          rate.arrivalDateText ||
+          "")) ||
+      "";
 
-    var d = new Date();
-    d.setDate(d.getDate() + days);
+    raw = String(raw).trim();
 
-    try {
-      return d.toLocaleDateString(undefined, {
-        weekday: "long",
-        month: "long",
-        day: "2-digit",
-        year: "numeric"
-      });
-    } catch (_) {
-      return d.toDateString();
+    if (!raw || raw.toUpperCase() === "NA") {
+      return "";
     }
+
+    // If Pacejet already returned a display string like:
+    // "MON - 4/6/2026" or "TUE - 4/7/2026 11:00:00 PM"
+    // keep that as the source of truth.
+    if (/[A-Z]{3}\s*-\s*\d{1,2}\/\d{1,2}\/\d{4}/i.test(raw)) {
+      return raw;
+    }
+
+    // If mapper/aggregation gave us YYYY-MM-DD, format it nicely.
+    var ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (ymd) {
+      var y = parseInt(ymd[1], 10);
+      var m = parseInt(ymd[2], 10);
+      var d = parseInt(ymd[3], 10);
+      var dateFromYmd = new Date(y, m - 1, d);
+
+      if (!isNaN(dateFromYmd.getTime())) {
+        try {
+          return dateFromYmd.toLocaleDateString(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "2-digit",
+            year: "numeric"
+          });
+        } catch (_) {
+          return dateFromYmd.toDateString();
+        }
+      }
+    }
+
+    // If the value contains an M/D/YYYY date, parse and format it.
+    var mdY = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (mdY) {
+      var month = parseInt(mdY[1], 10);
+      var day = parseInt(mdY[2], 10);
+      var year = parseInt(mdY[3], 10);
+      var parsed = new Date(year, month - 1, day);
+
+      if (!isNaN(parsed.getTime())) {
+        try {
+          return parsed.toLocaleDateString(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "2-digit",
+            year: "numeric"
+          });
+        } catch (_) {
+          return parsed.toDateString();
+        }
+      }
+    }
+
+    // Last fallback: return the raw Pacejet value instead of inventing a date.
+    return raw;
   }
 
   function buildRatesWrapper(rates, state, selectedShipCode) {
@@ -346,6 +458,10 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
         .attr("data-carrier", carrier)
         .attr("data-service", service)
         .attr("data-transit-days", rate.transitDays || "")
+        .attr(
+          "data-estimated-arrival-date",
+          rate.estimatedArrivalDate || rate.estDelivery || ""
+        )
         .data("origins", rate.origins || []);
 
       if (
@@ -554,6 +670,7 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
         carrier: $row.attr("data-carrier") || "",
         service: $row.attr("data-service") || "",
         transitDays: $row.attr("data-transit-days") || "",
+        estimatedArrivalDate: $row.attr("data-estimated-arrival-date") || "",
         origins: $row.data("origins") || []
       });
     });
@@ -569,6 +686,8 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
   function updateAccessorials() {
     var $wrap = $(".rdt-pj-accessorials-wrapper").first();
     if (!$wrap.length) return;
+
+    syncAccessorialStateFromStore();
 
     var $btn = $wrap.find(".rdt-pj-rates-toggle-btn").detach();
     var before = jQuery.extend({}, accessorialState);
@@ -616,23 +735,29 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
     }
 
     summary = order.get("summary") || {};
-    return Number(
-      summary.shipping ||
-        summary.shippingcost ||
-        summary.shippingCost ||
-        summary.estimatedshipping ||
-        0
-    ) || 0;
+    return (
+      Number(
+        summary.shipping ||
+          summary.shippingcost ||
+          summary.shippingCost ||
+          summary.estimatedshipping ||
+          0
+      ) || 0
+    );
   }
 
   function getReviewRate(order) {
-    var persistence = PacejetState && PacejetState.getPersistenceResult
-      ? PacejetState.getPersistenceResult()
-      : null;
-    var selectedRate = PacejetState && PacejetState.getSelectedRate
-      ? PacejetState.getSelectedRate()
-      : null;
-    var shipmethodId = getShipmethodId(order && order.get ? order.get("shipmethod") : "");
+    var persistence =
+      PacejetState && PacejetState.getPersistenceResult
+        ? PacejetState.getPersistenceResult()
+        : null;
+    var selectedRate =
+      PacejetState && PacejetState.getSelectedRate
+        ? PacejetState.getSelectedRate()
+        : null;
+    var shipmethodId = getShipmethodId(
+      order && order.get ? order.get("shipmethod") : ""
+    );
 
     if (
       persistence &&
@@ -653,7 +778,10 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
       };
     }
 
-    if (selectedRate && getShipmethodId(selectedRate.shipmethod) === shipmethodId) {
+    if (
+      selectedRate &&
+      getShipmethodId(selectedRate.shipmethod) === shipmethodId
+    ) {
       return {
         shipmethod: shipmethodId,
         carrier: selectedRate.carrier || "Pacejet",
@@ -683,7 +811,7 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
     $(".rdt-mui-shipping-card").remove();
     $(
       ".order-wizard-showshipments-module-shipping-details-method, " +
-      ".order-wizard-showshipments-actionable-module-shipping-details-method"
+        ".order-wizard-showshipments-actionable-module-shipping-details-method"
     )
       .removeClass("rdt-mui-native-hidden")
       .find("select")
@@ -705,7 +833,9 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
     $left.append($("<span/>").addClass("rdt-mui-chip").text(chipText));
     $left.append($("<div/>").addClass("rdt-mui-service").text(service));
     $card.append($left);
-    $card.append($("<div/>").addClass("rdt-mui-price").text(fmtMoney(rate.amount)));
+    $card.append(
+      $("<div/>").addClass("rdt-mui-price").text(fmtMoney(rate.amount))
+    );
     $card.append($changeBtn);
 
     $changeBtn.on("click", function (e) {
@@ -720,10 +850,15 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (jQuery, Pace
     var reviewRate = getReviewRate(order);
     var $method = $(
       ".order-wizard-showshipments-module-shipping-details-method, " +
-      ".order-wizard-showshipments-actionable-module-shipping-details-method"
+        ".order-wizard-showshipments-actionable-module-shipping-details-method"
     ).first();
 
-    if (!isReviewStep() || !$method.length || !reviewRate || !reviewRate.shipmethod) {
+    if (
+      !isReviewStep() ||
+      !$method.length ||
+      !reviewRate ||
+      !reviewRate.shipmethod
+    ) {
       clearReviewSelection();
       return;
     }
