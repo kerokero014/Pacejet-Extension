@@ -134,6 +134,8 @@ define("RDT.Pacejet.Service", [
       Array.isArray(payloads) && payloads.length ? payloads[0] || {} : {};
     var rawPayload = jQuery.extend(true, {}, firstEntry.payload || firstEntry);
 
+    delete rawPayload.Origin; // origins are sent in the "origins" array, so we need to remove any top-level origin data to avoid confusion
+
     rawPayload.cartSnapshot = cartSnapshot;
 
     return rawPayload;
@@ -503,7 +505,11 @@ define("RDT.Pacejet.Service", [
     return Object.keys(set);
   }
 
-  function filterRatesBySelectedAccessorials(rates, accessorialSelection, source) {
+  function filterRatesBySelectedAccessorials(
+    rates,
+    accessorialSelection,
+    source
+  ) {
     if (!Array.isArray(rates) || !rates.length) return rates;
 
     var selected = cloneSelection(
@@ -573,7 +579,8 @@ define("RDT.Pacejet.Service", [
         }
 
         for (acc in filterableSelection) {
-          if (!Object.prototype.hasOwnProperty.call(filterableSelection, acc)) continue;
+          if (!Object.prototype.hasOwnProperty.call(filterableSelection, acc))
+            continue;
           if (acc === NONE_ACCESSORIAL_ID) continue;
           if (!filterableSelection[acc]) continue;
 
@@ -1018,6 +1025,218 @@ define("RDT.Pacejet.Service", [
     return findFieldValueInObject(raw, fieldIds, 0, []);
   }
 
+  function toArray(value) {
+    if (Array.isArray(value)) return value;
+    if (value === null || value === void 0 || value === "") return [];
+    return [value];
+  }
+
+  function uniqueIds(ids) {
+    var seen = {};
+
+    return toArray(ids)
+      .filter(function (id) {
+        var key = extractId(id);
+        if (!key || seen[key]) {
+          return false;
+        }
+
+        seen[key] = true;
+        return true;
+      })
+      .map(extractId);
+  }
+
+  function getRawModel(model) {
+    if (!model) return {};
+
+    return (model.toJSON && model.toJSON()) || model.attributes || model || {};
+  }
+
+  function getLocationEntries(rawItem) {
+    var candidates = [
+      rawItem &&
+        rawItem.quantityavailable_detail &&
+        rawItem.quantityavailable_detail.locations,
+      rawItem &&
+        rawItem.quantityavailable_detail &&
+        rawItem.quantityavailable_detail.items,
+      rawItem && rawItem.locations,
+      rawItem && rawItem.location_detail,
+      rawItem && rawItem.inventorydetail && rawItem.inventorydetail.locations,
+      rawItem && rawItem.itemlocations_detail,
+      rawItem && rawItem.itemlocations
+    ];
+
+    for (var i = 0; i < candidates.length; i++) {
+      if (Array.isArray(candidates[i]) && candidates[i].length) {
+        return candidates[i];
+      }
+    }
+
+    return [];
+  }
+
+  function getLocationIdFromEntry(entry) {
+    if (!entry || typeof entry !== "object") {
+      return "";
+    }
+
+    return extractId(
+      entry.internalid ||
+        entry.location ||
+        entry.locationId ||
+        entry.id ||
+        entry.value ||
+        entry.locationinternalid
+    );
+  }
+
+  function getQuantityAvailableFromLocation(entry) {
+    if (!entry || typeof entry !== "object") {
+      return 0;
+    }
+
+    var candidates = [
+      entry.quantityavailable,
+      entry.quantityAvailable,
+      entry.available,
+      entry.qtyavailable,
+      entry.qtyAvailable,
+      entry.locationquantityavailable,
+      entry.quantityonhand,
+      entry.quantity
+    ];
+
+    for (var i = 0; i < candidates.length; i++) {
+      var value = Number(candidates[i]);
+      if (isFinite(value)) {
+        return value;
+      }
+    }
+
+    return 0;
+  }
+
+  function buildAvailabilitySnapshot(item, qty) {
+    var rawItem = getRawModel(item);
+    var locations = getLocationEntries(rawItem);
+    var requestedQty = Number(qty) || 1;
+    var availableLocationIds = [];
+    var fulfillableLocationIds = [];
+    var warehouseAvailability = {};
+
+    locations.forEach(function (entry) {
+      var locationId = getLocationIdFromEntry(entry);
+      var quantityAvailable = getQuantityAvailableFromLocation(entry);
+
+      // More tolerant than before:
+      // mark as available if there is any stock, not only full requested qty.
+      var isAvailable = !!locationId && quantityAvailable > 0;
+      var isFulfillable = !!locationId && quantityAvailable >= requestedQty;
+
+      if (!locationId) {
+        return;
+      }
+
+      warehouseAvailability[locationId] = isAvailable;
+
+      if (isAvailable) {
+        availableLocationIds.push(locationId);
+      }
+
+      if (isFulfillable) {
+        fulfillableLocationIds.push(locationId);
+      }
+    });
+
+    availableLocationIds = uniqueIds(availableLocationIds);
+    fulfillableLocationIds = uniqueIds(fulfillableLocationIds);
+
+    return {
+      availableLocationIds: availableLocationIds,
+      fulfillableLocationIds: fulfillableLocationIds,
+
+      eligible3plLocationIds: fulfillableLocationIds.filter(
+        function (locationId) {
+          return locationId !== "62";
+        }
+      ),
+      warehouseAvailability: warehouseAvailability,
+      availableInSpringville: fulfillableLocationIds.indexOf("62") !== -1,
+      availableInDelaware: fulfillableLocationIds.indexOf("63") !== -1,
+      availableInGeorgia: fulfillableLocationIds.indexOf("64") !== -1,
+      availabilitySource: locations.length ? "line-location-detail" : ""
+    };
+  }
+
+  function inferPackagingType(item, line, packageType) {
+    var rawItem = getRawModel(item);
+    var rawLine = getRawModel(line);
+    var raw = [
+      packageType,
+      getAnyFieldValue(item, [
+        "custitem_package_type",
+        "custitem_packaging_type",
+        "packagetype",
+        "container"
+      ]),
+      rawItem.displayname,
+      rawItem.storedisplayname2,
+      rawItem.storedisplayname,
+      rawItem.salesdescription,
+      rawItem.description,
+      rawLine.description,
+      rawItem.itemid
+    ]
+      .join(" ")
+      .toUpperCase();
+
+    if (raw.indexOf("DRUM") !== -1) {
+      return "DRUM";
+    }
+
+    if (raw.indexOf("PAIL") !== -1 || raw.indexOf(" PAILS") !== -1) {
+      return "PAIL";
+    }
+
+    return "";
+  }
+
+  function summarizeOriginPlanningItems(items) {
+    var summary = {
+      itemsCount: Array.isArray(items) ? items.length : 0,
+      itemsWithAvailability: 0,
+      itemsMissingAvailability: 0,
+      drums: 0,
+      pails: 0
+    };
+
+    (items || []).forEach(function (item) {
+      var availableLocationIds = uniqueIds(item && item.availableLocationIds);
+      var packagingType = String(
+        (item && (item.packagingType || item.packageType)) || ""
+      ).toUpperCase();
+      var qty = Number(item && item.quantity) || 1;
+
+      if (availableLocationIds.length) {
+        summary.itemsWithAvailability += 1;
+      } else {
+        summary.itemsMissingAvailability += 1;
+      }
+
+      if (packagingType === "DRUM") {
+        summary.drums += qty;
+      }
+
+      if (packagingType === "PAIL") {
+        summary.pails += qty;
+      }
+    });
+
+    return summary;
+  }
+
   // builds: items: [{weight, length, width, height, quantity, originKey, dropShip, ...}]
   function buildItemsSnapshot(order) {
     if (!order || !order.get) return [];
@@ -1039,9 +1258,27 @@ define("RDT.Pacejet.Service", [
         Number(item.get && item.get("custitem_pacejet_item_width")) || 0;
       var height =
         Number(item.get && item.get("custitem_pacejet_item_height")) || 0;
-      var packageType =
-        String((item.get && item.get("custitem_package_type")) || "").trim();
+      var packageType = String(
+        (item.get && item.get("custitem_package_type")) || ""
+      ).trim();
+      var packagingType = inferPackagingType(item, line, packageType);
       var isHazmat = asBool(item.get && item.get("custitem13"));
+
+      var rawItem = getRawModel(item);
+      var availability = buildAvailabilitySnapshot(item, qty);
+
+      console.log("[Pacejet] Availability snapshot", {
+        sku: item.get && item.get("itemid"),
+        internalid: item.get && item.get("internalid"),
+        qty: qty,
+        packageType: packageType,
+        packagingType: packagingType,
+        availability: availability,
+        rawLocations:
+          rawItem &&
+          rawItem.quantityavailable_detail &&
+          rawItem.quantityavailable_detail.locations
+      });
 
       // Dropship detection (try multiple sources)
       var dsRaw =
@@ -1131,10 +1368,21 @@ define("RDT.Pacejet.Service", [
         width: width,
         height: height,
         packageType: packageType,
+        packagingType: packagingType || packageType || "",
         isHazmat: isHazmat,
 
         dropShip: dropShip,
-        itemtype: (item.get && item.get("itemtype")) || null
+        itemtype: (item.get && item.get("itemtype")) || null,
+        description:
+          getAnyFieldValue(item, ["displayname", "storedisplayname2"]) || "",
+        availableLocationIds: availability.availableLocationIds,
+        fulfillableLocationIds: availability.fulfillableLocationIds,
+        eligible3plLocationIds: availability.eligible3plLocationIds,
+        warehouseAvailability: availability.warehouseAvailability,
+        availableInSpringville: availability.availableInSpringville,
+        availableInGeorgia: availability.availableInGeorgia,
+        availableInDelaware: availability.availableInDelaware,
+        availabilitySource: availability.availabilitySource
       });
     });
 
@@ -1524,21 +1772,41 @@ define("RDT.Pacejet.Service", [
           width: it.width,
           height: it.height,
           packageType: it.packageType || "",
+          packagingType: it.packagingType || "",
+          description: it.description || "",
           isHazmat: !!it.isHazmat,
           isDropShip: !!it.dropShip,
           dropShip: !!it.dropShip,
           originKey: it.originKey || "",
-          locationId: it.locationId || ""
+          locationId: it.locationId || "",
+          availableLocationIds: uniqueIds(it.availableLocationIds),
+          fulfillableLocationIds: uniqueIds(it.fulfillableLocationIds),
+          eligible3plLocationIds: uniqueIds(it.eligible3plLocationIds),
+          warehouseAvailability: jQuery.extend(
+            {},
+            it.warehouseAvailability || {}
+          ),
+          availableInSpringville: !!it.availableInSpringville,
+          availableInGeorgia: !!it.availableInGeorgia,
+          availableInDelaware: !!it.availableInDelaware,
+          availabilitySource: it.availabilitySource || ""
         };
       })
     };
+
+    console.log(
+      "[Pacejet] origin planning snapshot",
+      summarizeOriginPlanningItems(cartSnapshot.items),
+      cartSnapshot.items
+    );
 
     state.cache.lastSnapshot = {
       shipping: shipping,
       items: items,
       opts: opts
     };
-    state.cache.lastRequestedAccessorials = cloneSelection(selectedAccessorials);
+    state.cache.lastRequestedAccessorials =
+      cloneSelection(selectedAccessorials);
 
     var fullHash = hashCartSnapshot(shipping, items, opts);
     var baseHash = hashCartSnapshot(shipping, items, {
@@ -1583,7 +1851,9 @@ define("RDT.Pacejet.Service", [
 
     return requestRates(outboundPayload).then(function (serviceResponse) {
       if (state.cache._activeRequestId !== thisRequestId) {
-        console.warn("[Pacejet] Ignoring stale rate response. Using filtered cache.");
+        console.warn(
+          "[Pacejet] Ignoring stale rate response. Using filtered cache."
+        );
         return filterRatesBySelectedAccessorials(
           state.cache.lastRates || [],
           selectedAccessorials,
@@ -1670,7 +1940,6 @@ define("RDT.Pacejet.Service", [
         selectedAccessorials,
         "merged-final"
       );
-      // ! TODO: This will be more efficient if done before merging modes, but we need to do it after carrier limits and suppression for now since those can remove rates that have accessorials
 
       if (!hasAnyAccessorials(selectedAccessorials)) {
         state.cache.baseHash = baseHash;

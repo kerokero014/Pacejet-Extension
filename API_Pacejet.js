@@ -1,7 +1,7 @@
 /**
  * @NApiVersion 2.1
  * @NScriptType Suitelet
- * @description RDT Pacejet Rates Suitelet (v3.7) - Multi-Origin + Vendor Aware + dropship support
+ * @description RDT Pacejet Rates Suitelet (v5) - Multi-Origin + Vendor Aware + dropship support
  */
 define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
   runtime,
@@ -173,6 +173,8 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
   var VENDOR_ORIGIN_CACHE = {};
   var LOCATION_ORIGIN_CACHE = {};
   var ITEM_LOCATION_CACHE = {};
+  var ITEM_RECORD_CACHE = {};
+  var ITEM_AVAILABILITY_CACHE = {};
 
   function extractLocationId(cartItem) {
     if (!cartItem) return "";
@@ -233,6 +235,41 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     return locationId;
   }
 
+  function loadItemRecordSafe(itemId, recType) {
+    if (!itemId || !recType) {
+      return null;
+    }
+
+    var cacheKey = String(recType) + "|" + String(itemId);
+    if (ITEM_RECORD_CACHE.hasOwnProperty(cacheKey)) {
+      return ITEM_RECORD_CACHE[cacheKey];
+    }
+
+    try {
+      ITEM_RECORD_CACHE[cacheKey] = record.load({
+        type: recType,
+        id: itemId,
+        isDynamic: false
+      });
+    } catch (e) {
+      try {
+        log.error({
+          title:
+            "loadItemRecordSafe failed (item " +
+            itemId +
+            ", type " +
+            recType +
+            ")",
+          details: e
+        });
+      } catch (_eLoadLog) {}
+
+      ITEM_RECORD_CACHE[cacheKey] = null;
+    }
+
+    return ITEM_RECORD_CACHE[cacheKey];
+  }
+
   function resolveWarehouseLocationId(cartItem, itemRec) {
     var locationId = extractLocationId(cartItem);
     if (locationId) {
@@ -278,20 +315,68 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
         isDynamic: false
       });
 
+      var addressSubrecord = null;
+
+      try {
+        addressSubrecord = locationRec.getSubrecord({
+          fieldId: "mainaddress"
+        });
+      } catch (_addrErr) {
+        addressSubrecord = null;
+      }
+
       origin.CompanyName =
         locationRec.getValue({ fieldId: "name" }) || DEFAULT_ORIGIN.CompanyName;
-      origin.Address1 =
-        locationRec.getValue({ fieldId: "addr1" }) || DEFAULT_ORIGIN.Address1;
-      origin.City =
-        locationRec.getValue({ fieldId: "city" }) || DEFAULT_ORIGIN.City;
-      origin.StateOrProvinceCode =
-        locationRec.getValue({ fieldId: "state" }) ||
-        DEFAULT_ORIGIN.StateOrProvinceCode;
-      origin.PostalCode =
-        locationRec.getValue({ fieldId: "zip" }) || DEFAULT_ORIGIN.PostalCode;
-      origin.CountryCode =
-        locationRec.getValue({ fieldId: "country" }) ||
-        DEFAULT_ORIGIN.CountryCode;
+
+      if (addressSubrecord) {
+        origin.Address1 =
+          addressSubrecord.getValue({ fieldId: "addr1" }) ||
+          DEFAULT_ORIGIN.Address1;
+        origin.City =
+          addressSubrecord.getValue({ fieldId: "city" }) || DEFAULT_ORIGIN.City;
+        origin.StateOrProvinceCode =
+          addressSubrecord.getValue({ fieldId: "state" }) ||
+          addressSubrecord.getValue({ fieldId: "dropdownstate" }) ||
+          DEFAULT_ORIGIN.StateOrProvinceCode;
+        origin.PostalCode =
+          addressSubrecord.getValue({ fieldId: "zip" }) ||
+          DEFAULT_ORIGIN.PostalCode;
+        origin.CountryCode =
+          addressSubrecord.getValue({ fieldId: "country" }) ||
+          DEFAULT_ORIGIN.CountryCode;
+      } else {
+        origin.Address1 =
+          locationRec.getValue({ fieldId: "addr1" }) || DEFAULT_ORIGIN.Address1;
+        origin.City =
+          locationRec.getValue({ fieldId: "city" }) || DEFAULT_ORIGIN.City;
+        origin.StateOrProvinceCode =
+          locationRec.getValue({ fieldId: "state" }) ||
+          DEFAULT_ORIGIN.StateOrProvinceCode;
+        origin.PostalCode =
+          locationRec.getValue({ fieldId: "zip" }) || DEFAULT_ORIGIN.PostalCode;
+        origin.CountryCode =
+          locationRec.getValue({ fieldId: "country" }) ||
+          DEFAULT_ORIGIN.CountryCode;
+      }
+
+      try {
+        log.audit({
+          title: "buildOriginFromLocation resolved",
+          details: {
+            locationId: key,
+            facilityCode: facilityCode,
+            companyName: origin.CompanyName,
+            address1: origin.Address1,
+            city: origin.City,
+            state: origin.StateOrProvinceCode,
+            postalCode: origin.PostalCode,
+            countryCode: origin.CountryCode,
+            usedMainAddressSubrecord: !!addressSubrecord,
+            mainaddressText:
+              locationRec.getValue({ fieldId: "mainaddress_text" }) || ""
+          }
+        });
+      } catch (_logErr) {}
     } catch (e) {
       try {
         log.error({
@@ -518,11 +603,7 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
       var itemRec = null;
 
       try {
-        itemRec = record.load({
-          type: recType,
-          id: cartItem.internalid,
-          isDynamic: false
-        });
+        itemRec = loadItemRecordSafe(cartItem.internalid, recType);
       } catch (eLoad) {
         try {
           log.error({
@@ -536,6 +617,11 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
           });
         } catch (_eLog3) {}
 
+        ITEM_ORIGIN_CACHE[key] = DEFAULT_ORIGIN;
+        return DEFAULT_ORIGIN;
+      }
+
+      if (!itemRec) {
         ITEM_ORIGIN_CACHE[key] = DEFAULT_ORIGIN;
         return DEFAULT_ORIGIN;
       }
@@ -631,6 +717,721 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
 
   // ---------- origin grouping (multi-origin) ----------
 
+  // ---------- order-level 3PL origin planning ----------
+
+  var ORIGIN_RULES = {
+    FL_GEORGIA: "FL_GEORGIA",
+    FL_DELAWARE: "FL_DELAWARE",
+    MIXED_TO_SPRINGVILLE: "MIXED_TO_SPRINGVILLE",
+    OVER_DRUM_THRESHOLD: "OVER_DRUM_THRESHOLD",
+    OVER_PAIL_THRESHOLD: "OVER_PAIL_THRESHOLD",
+    NEAREST_3PL: "NEAREST_3PL",
+    DEFAULT: "DEFAULT"
+  };
+
+  // TODO: replace with your real NetSuite location IDs
+  var LOCATION_IDS = {
+    SPRINGVILLE: "62",
+    DELAWARE: "63",
+    GEORGIA: "64"
+  };
+
+  // Simple nearest heuristic for now.
+  // Replace or expand later if you want IL/TX/etc. included.
+  var DEST_STATE_TO_3PL_PRIORITY = {
+    FL: [LOCATION_IDS.GEORGIA, LOCATION_IDS.DELAWARE],
+    GA: [LOCATION_IDS.GEORGIA, LOCATION_IDS.DELAWARE],
+    SC: [LOCATION_IDS.GEORGIA, LOCATION_IDS.DELAWARE],
+    NC: [LOCATION_IDS.GEORGIA, LOCATION_IDS.DELAWARE],
+    AL: [LOCATION_IDS.GEORGIA, LOCATION_IDS.DELAWARE],
+    TN: [LOCATION_IDS.GEORGIA, LOCATION_IDS.DELAWARE],
+    DE: [LOCATION_IDS.DELAWARE, LOCATION_IDS.GEORGIA],
+    NJ: [LOCATION_IDS.DELAWARE, LOCATION_IDS.GEORGIA],
+    PA: [LOCATION_IDS.DELAWARE, LOCATION_IDS.GEORGIA],
+    MD: [LOCATION_IDS.DELAWARE, LOCATION_IDS.GEORGIA]
+  };
+
+  function safeUpper(value) {
+    return String(value || "")
+      .toUpperCase()
+      .trim();
+  }
+
+  function num(value) {
+    var n = Number(value);
+    return isFinite(n) ? n : 0;
+  }
+
+  function isTrueLike(value) {
+    if (value === true || value === "T") return true;
+
+    return (
+      String(value || "")
+        .toLowerCase()
+        .trim() === "true"
+    );
+  }
+
+  function ensureArray(value) {
+    return Array.isArray(value) ? value : value == null ? [] : [value];
+  }
+
+  function normalizeLocationId(value) {
+    return value === null || value === undefined || value === ""
+      ? ""
+      : String(value);
+  }
+
+  function normalizeLocationIdArray(value) {
+    var seen = {};
+    return ensureArray(value)
+      .map(function (v) {
+        return normalizeLocationId(v);
+      })
+      .filter(function (v) {
+        if (!v || seen[v]) return false;
+        seen[v] = true;
+        return true;
+      });
+  }
+
+  function objectHasKeys(value) {
+    return (
+      !!value && typeof value === "object" && Object.keys(value).length > 0
+    );
+  }
+
+  function getSublistValueFromCandidates(rec, sublistId, fieldIds, line) {
+    for (var i = 0; i < fieldIds.length; i += 1) {
+      try {
+        var value = rec.getSublistValue({
+          sublistId: sublistId,
+          fieldId: fieldIds[i],
+          line: line
+        });
+
+        if (value !== null && value !== undefined && value !== "") {
+          return value;
+        }
+      } catch (_e) {}
+    }
+
+    return "";
+  }
+
+  function buildAvailabilityFlags(locationIds) {
+    var ids = normalizeLocationIdArray(locationIds);
+
+    return {
+      availableInSpringville: ids.indexOf(LOCATION_IDS.SPRINGVILLE) !== -1,
+      availableInGeorgia: ids.indexOf(LOCATION_IDS.GEORGIA) !== -1,
+      availableInDelaware: ids.indexOf(LOCATION_IDS.DELAWARE) !== -1
+    };
+  }
+
+  function getCartItems(body) {
+    return (body && body.cartSnapshot && body.cartSnapshot.items) || [];
+  }
+
+  function getDestinationState(body) {
+    return safeUpper(
+      body &&
+        body.Destination &&
+        (body.Destination.StateOrProvinceCode ||
+          body.Destination.state ||
+          body.Destination.stateCode)
+    );
+  }
+
+  function normalizePackagingType(item) {
+    var raw = safeUpper(
+      item &&
+        (item.packagingType ||
+          item.packageType ||
+          item.packageTypeLabel ||
+          item.containerType ||
+          item.unitType ||
+          item.saleUnit ||
+          item.description ||
+          item.displayname ||
+          item.name ||
+          item.sku ||
+          item.custcol5 ||
+          "")
+    );
+
+    if (raw.indexOf("DRUM") !== -1) return "DRUM";
+    if (raw.indexOf("PAIL") !== -1) return "PAIL";
+    return "";
+  }
+
+  function countPackaging(items) {
+    var drums = 0;
+    var pails = 0;
+
+    (items || []).forEach(function (item) {
+      var qty = num(item && item.quantity) || 1;
+      var packaging = normalizePackagingType(item);
+
+      if (packaging === "DRUM") drums += qty;
+      if (packaging === "PAIL") pails += qty;
+    });
+
+    return {
+      drums: drums,
+      pails: pails
+    };
+  }
+
+  /**
+   * Reads explicit availability hints from the payload.
+   * Conservative by design: if the item does not provide any of these
+   * fields, the planner will not force a business-rule origin.
+   */
+  function getAvailableLocationIdsForItem(item) {
+    var ids = [];
+
+    if (!item || typeof item !== "object") {
+      return ids;
+    }
+
+    ids = ids.concat(normalizeLocationIdArray(item.availableLocationIds));
+    ids = ids.concat(normalizeLocationIdArray(item.fulfillableLocationIds));
+    ids = ids.concat(normalizeLocationIdArray(item.eligible3plLocationIds));
+
+    if (
+      item.warehouseAvailability &&
+      typeof item.warehouseAvailability === "object"
+    ) {
+      Object.keys(item.warehouseAvailability).forEach(function (locId) {
+        var value = item.warehouseAvailability[locId];
+        if (
+          value === true ||
+          value === "T" ||
+          String(value).toLowerCase() === "true"
+        ) {
+          ids.push(String(locId));
+        }
+      });
+    }
+
+    if (
+      item.availableInSpringville === true ||
+      item.availableInSpringville === "T"
+    ) {
+      ids.push(LOCATION_IDS.SPRINGVILLE);
+    }
+    if (item.availableInGeorgia === true || item.availableInGeorgia === "T") {
+      ids.push(LOCATION_IDS.GEORGIA);
+    }
+    if (item.availableInDelaware === true || item.availableInDelaware === "T") {
+      ids.push(LOCATION_IDS.DELAWARE);
+    }
+
+    return normalizeLocationIdArray(ids);
+  }
+
+  function hasExplicitAvailabilityData(item) {
+    return getAvailableLocationIdsForItem(item).length > 0;
+  }
+
+  function mergeAvailabilityDataIntoItem(item, data, source) {
+    if (!item || !data) {
+      return item;
+    }
+
+    item.availableLocationIds = normalizeLocationIdArray(
+      ensureArray(item.availableLocationIds).concat(data.availableLocationIds)
+    );
+    item.fulfillableLocationIds = normalizeLocationIdArray(
+      ensureArray(item.fulfillableLocationIds).concat(
+        data.fulfillableLocationIds
+      )
+    );
+    item.eligible3plLocationIds = normalizeLocationIdArray(
+      ensureArray(item.eligible3plLocationIds).concat(
+        data.eligible3plLocationIds
+      )
+    );
+
+    item.warehouseAvailability = item.warehouseAvailability || {};
+    Object.keys(data.warehouseAvailability || {}).forEach(function (locId) {
+      if (item.warehouseAvailability[locId] === undefined) {
+        item.warehouseAvailability[locId] = data.warehouseAvailability[locId];
+      } else if (data.warehouseAvailability[locId] === true) {
+        item.warehouseAvailability[locId] = true;
+      }
+    });
+
+    var flags = buildAvailabilityFlags(item.availableLocationIds);
+
+    if (item.availableInSpringville === undefined) {
+      item.availableInSpringville = flags.availableInSpringville;
+    } else if (flags.availableInSpringville) {
+      item.availableInSpringville = true;
+    }
+
+    if (item.availableInGeorgia === undefined) {
+      item.availableInGeorgia = flags.availableInGeorgia;
+    } else if (flags.availableInGeorgia) {
+      item.availableInGeorgia = true;
+    }
+
+    if (item.availableInDelaware === undefined) {
+      item.availableInDelaware = flags.availableInDelaware;
+    } else if (flags.availableInDelaware) {
+      item.availableInDelaware = true;
+    }
+
+    if (!item.availabilitySource && source) {
+      item.availabilitySource = source;
+    }
+
+    return item;
+  }
+
+  function getAvailabilityDataFromItemRecord(cartItem) {
+    if (!cartItem || !cartItem.internalid) {
+      return null;
+    }
+
+    var recType = mapItemType(cartItem.type || cartItem.itemtype);
+    var qty = num(cartItem.quantity) || 1;
+    var cacheKey = [String(cartItem.internalid), String(recType), qty].join(
+      "|"
+    );
+
+    if (ITEM_AVAILABILITY_CACHE.hasOwnProperty(cacheKey)) {
+      return ITEM_AVAILABILITY_CACHE[cacheKey];
+    }
+
+    var itemRec = loadItemRecordSafe(cartItem.internalid, recType);
+    if (!itemRec) {
+      ITEM_AVAILABILITY_CACHE[cacheKey] = null;
+      return null;
+    }
+
+    var sublistCandidates = ["locations", "location"];
+    var sublistId = "";
+    var lineCount = 0;
+
+    for (var i = 0; i < sublistCandidates.length; i += 1) {
+      try {
+        lineCount =
+          itemRec.getLineCount({ sublistId: sublistCandidates[i] }) || 0;
+        if (lineCount > 0) {
+          sublistId = sublistCandidates[i];
+          break;
+        }
+      } catch (_eSublist) {}
+    }
+
+    if (!sublistId || !lineCount) {
+      ITEM_AVAILABILITY_CACHE[cacheKey] = null;
+      return null;
+    }
+
+    var warehouseAvailability = {};
+    var availableLocationIds = [];
+
+    for (var line = 0; line < lineCount; line += 1) {
+      var locationId = normalizeLocationId(
+        getSublistValueFromCandidates(
+          itemRec,
+          sublistId,
+          ["location", "locationid", "internalid"],
+          line
+        )
+      );
+      var quantityAvailable = num(
+        getSublistValueFromCandidates(
+          itemRec,
+          sublistId,
+          [
+            "quantityavailable",
+            "locationquantityavailable",
+            "quantityonhand",
+            "quantity"
+          ],
+          line
+        )
+      );
+      var fulfillableFlag = getSublistValueFromCandidates(
+        itemRec,
+        sublistId,
+        ["isfulfillable", "fulfillable", "available"],
+        line
+      );
+      var isAvailable =
+        !!locationId &&
+        ((quantityAvailable > 0 && quantityAvailable >= qty) ||
+          isTrueLike(fulfillableFlag));
+
+      if (!locationId) {
+        continue;
+      }
+
+      warehouseAvailability[locationId] = isAvailable;
+
+      if (isAvailable) {
+        availableLocationIds.push(locationId);
+      }
+    }
+
+    availableLocationIds = normalizeLocationIdArray(availableLocationIds);
+
+    if (!availableLocationIds.length && !objectHasKeys(warehouseAvailability)) {
+      ITEM_AVAILABILITY_CACHE[cacheKey] = null;
+      return null;
+    }
+
+    ITEM_AVAILABILITY_CACHE[cacheKey] = {
+      availableLocationIds: availableLocationIds,
+      fulfillableLocationIds: availableLocationIds.slice(),
+      eligible3plLocationIds: availableLocationIds.filter(
+        function (locationId) {
+          return locationId !== LOCATION_IDS.SPRINGVILLE;
+        }
+      ),
+      warehouseAvailability: warehouseAvailability,
+      availabilitySource: "suitelet-item-record"
+    };
+
+    return ITEM_AVAILABILITY_CACHE[cacheKey];
+  }
+
+  function enrichCartItemsForOriginPlanning(body) {
+    var items = getCartItems(body);
+    var summary = {
+      itemsCount: items.length,
+      explicitItems: 0,
+      enrichedItems: 0,
+      missingItems: 0
+    };
+
+    items.forEach(function (item) {
+      if (!item || item.isDropShip === true || item.dropShip === true) {
+        summary.missingItems += 1;
+        return;
+      }
+
+      if (hasExplicitAvailabilityData(item)) {
+        summary.explicitItems += 1;
+        return;
+      }
+
+      var derived = getAvailabilityDataFromItemRecord(item);
+      if (derived) {
+        mergeAvailabilityDataIntoItem(
+          item,
+          derived,
+          derived.availabilitySource
+        );
+      }
+
+      if (hasExplicitAvailabilityData(item)) {
+        summary.explicitItems += 1;
+        summary.enrichedItems += derived ? 1 : 0;
+      } else {
+        summary.missingItems += 1;
+      }
+    });
+
+    return summary;
+  }
+
+  function itemAvailableAt(item, locationId) {
+    return (
+      getAvailableLocationIdsForItem(item).indexOf(String(locationId)) !== -1
+    );
+  }
+
+  function itemHasSpringville(item) {
+    return itemAvailableAt(item, LOCATION_IDS.SPRINGVILLE);
+  }
+
+  function get3plCandidateLocationIds(item) {
+    return getAvailableLocationIdsForItem(item).filter(function (locId) {
+      return locId !== LOCATION_IDS.SPRINGVILLE;
+    });
+  }
+
+  function itemHasAny3pl(item) {
+    return get3plCandidateLocationIds(item).length > 0;
+  }
+
+  function allItemsHaveExplicitAvailability(items) {
+    if (!items || !items.length) return false;
+
+    for (var i = 0; i < items.length; i += 1) {
+      if (!hasExplicitAvailabilityData(items[i])) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function allItemsAvailableAt(items, locationId) {
+    if (!items || !items.length) return false;
+
+    for (var i = 0; i < items.length; i += 1) {
+      if (!itemAvailableAt(items[i], locationId)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function allItemsHaveAny3pl(items) {
+    if (!items || !items.length) return false;
+
+    for (var i = 0; i < items.length; i += 1) {
+      if (!itemHasAny3pl(items[i])) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function getEligible3plsForWholeOrder(items) {
+    var intersection = null;
+
+    (items || []).forEach(function (item) {
+      var candidates = get3plCandidateLocationIds(item);
+      var lookup = {};
+      var next = [];
+
+      candidates.forEach(function (id) {
+        lookup[String(id)] = true;
+      });
+
+      if (intersection === null) {
+        intersection = candidates.slice();
+        return;
+      }
+
+      intersection.forEach(function (id) {
+        if (lookup[String(id)]) {
+          next.push(String(id));
+        }
+      });
+
+      intersection = next;
+    });
+
+    return intersection || [];
+  }
+
+  /**
+   * "Mixed" means:
+   * - at least one item has Springville availability
+   * - at least one item has 3PL availability
+   * - but there is no single common 3PL that can fulfill the whole order
+   */
+  function detectMixedSpringvilleAnd3pl(items) {
+    var hasSpringville = false;
+    var has3pl = false;
+    var eligible3pls = getEligible3plsForWholeOrder(items);
+
+    (items || []).forEach(function (item) {
+      if (itemHasSpringville(item)) {
+        hasSpringville = true;
+      }
+      if (itemHasAny3pl(item)) {
+        has3pl = true;
+      }
+    });
+
+    return hasSpringville && has3pl && !eligible3pls.length;
+  }
+
+  function chooseNearest3pl(destinationState, eligibleLocationIds) {
+    var candidates = normalizeLocationIdArray(eligibleLocationIds);
+    var preferred = DEST_STATE_TO_3PL_PRIORITY[destinationState] || [];
+
+    for (var i = 0; i < preferred.length; i += 1) {
+      if (candidates.indexOf(preferred[i]) !== -1) {
+        return preferred[i];
+      }
+    }
+
+    return candidates.length ? candidates[0] : "";
+  }
+
+  function buildDefaultOriginPlan(debug) {
+    return {
+      mode: "per-item-origin",
+      ruleApplied: ORIGIN_RULES.DEFAULT,
+      forcedLocationId: "",
+      forcedOrigin: null,
+      debug: debug || {}
+    };
+  }
+
+  function buildForcedSingleOriginPlan(locationId, ruleApplied, debug) {
+    var origin = buildOriginFromLocation(locationId);
+
+    if (!origin) {
+      return buildDefaultOriginPlan(debug);
+    }
+
+    return {
+      mode: "forced-single-origin",
+      ruleApplied: ruleApplied || ORIGIN_RULES.DEFAULT,
+      forcedLocationId: String(locationId || ""),
+      forcedOrigin: origin,
+      debug: debug || {}
+    };
+  }
+
+  function buildOriginPlan(body) {
+    var items = getCartItems(body);
+    var destinationState = getDestinationState(body);
+    var packaging = countPackaging(items);
+    var hasDropShipItems = (items || []).some(function (item) {
+      return !!(
+        item &&
+        (item.isDropShip === true ||
+          item.dropShip === true ||
+          item.isDropShip === "T" ||
+          item.dropShip === "T")
+      );
+    });
+    var explicitAvailability = allItemsHaveExplicitAvailability(items);
+    var eligible3pls = explicitAvailability
+      ? getEligible3plsForWholeOrder(items)
+      : [];
+    var mixedSpringville3pl = explicitAvailability
+      ? detectMixedSpringvilleAnd3pl(items)
+      : false;
+
+    var debug = {
+      destinationState: destinationState,
+      itemsCount: items.length,
+      explicitAvailability: explicitAvailability,
+      hasDropShipItems: hasDropShipItems,
+      drums: packaging.drums,
+      pails: packaging.pails,
+      eligible3pls: eligible3pls,
+      mixedSpringville3pl: mixedSpringville3pl
+    };
+
+    if (!items.length) {
+      return buildDefaultOriginPlan(debug);
+    }
+
+    if (hasDropShipItems) {
+      return buildDefaultOriginPlan(debug);
+    }
+
+    // No explicit warehouse availability for all items:
+    // do NOT force a rule; fall back to your current origin logic.
+    if (!explicitAvailability) {
+      return buildDefaultOriginPlan(debug);
+    }
+
+    // 1) Florida rule
+    if (destinationState === "FL") {
+      if (allItemsAvailableAt(items, LOCATION_IDS.GEORGIA)) {
+        return buildForcedSingleOriginPlan(
+          LOCATION_IDS.GEORGIA,
+          ORIGIN_RULES.FL_GEORGIA,
+          debug
+        );
+      }
+
+      if (
+        !allItemsAvailableAt(items, LOCATION_IDS.GEORGIA) &&
+        allItemsAvailableAt(items, LOCATION_IDS.DELAWARE)
+      ) {
+        return buildForcedSingleOriginPlan(
+          LOCATION_IDS.DELAWARE,
+          ORIGIN_RULES.FL_DELAWARE,
+          debug
+        );
+      }
+    }
+
+    // 2) Mixed 3PL + Springville => Springville
+    if (mixedSpringville3pl) {
+      return buildForcedSingleOriginPlan(
+        LOCATION_IDS.SPRINGVILLE,
+        ORIGIN_RULES.MIXED_TO_SPRINGVILLE,
+        debug
+      );
+    }
+
+    // 3) All items in 3PL but over drum threshold => Springville
+    if (allItemsHaveAny3pl(items) && packaging.drums > 20) {
+      return buildForcedSingleOriginPlan(
+        LOCATION_IDS.SPRINGVILLE,
+        ORIGIN_RULES.OVER_DRUM_THRESHOLD,
+        debug
+      );
+    }
+
+    // 4) All items in 3PL but over pail threshold => Springville
+    if (allItemsHaveAny3pl(items) && packaging.pails > 32) {
+      return buildForcedSingleOriginPlan(
+        LOCATION_IDS.SPRINGVILLE,
+        ORIGIN_RULES.OVER_PAIL_THRESHOLD,
+        debug
+      );
+    }
+
+    // 5) All items available from one common 3PL => nearest eligible 3PL
+    if (eligible3pls.length) {
+      var chosen3pl = chooseNearest3pl(destinationState, eligible3pls);
+      if (chosen3pl) {
+        return buildForcedSingleOriginPlan(
+          chosen3pl,
+          ORIGIN_RULES.NEAREST_3PL,
+          debug
+        );
+      }
+    }
+
+    return buildDefaultOriginPlan(debug);
+  }
+
+  function groupPackagesByPlan(body, plan) {
+    if (!plan || plan.mode !== "forced-single-origin" || !plan.forcedOrigin) {
+      return groupPackagesByOrigin(body);
+    }
+
+    var list = body.PackageDetailsList || [];
+    var buckets = {};
+    var key = getOriginGroupKey(plan.forcedOrigin);
+
+    buckets[key] = {
+      Origin: plan.forcedOrigin,
+      Packages: [],
+      dropShip: false
+    };
+
+    for (var i = 0; i < list.length; i++) {
+      var pkg = list[i];
+      var item = (body.cartSnapshot && body.cartSnapshot.items[i]) || {};
+
+      if (
+        item &&
+        (item.isDropShip === true ||
+          item.dropShip === true ||
+          item.isDropShip === "T" ||
+          item.dropShip === "T")
+      ) {
+        buckets[key].dropShip = true;
+      }
+
+      buckets[key].Packages.push(pkg);
+    }
+
+    return buckets;
+  }
+
   function groupPackagesByOrigin(body) {
     var list = body.PackageDetailsList || [];
     var buckets = {};
@@ -677,7 +1478,7 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
       return writeJson(res, {
         ok: true,
         version: "Phase3 Multi-Origin + Vendor",
-        service: "RDT Pacejet Rates Suitelet (v3.7)"
+        service: "RDT Pacejet Rates Suitelet (v5)"
       });
     }
 
@@ -718,10 +1519,38 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
       }
     } catch (_e2) {}
 
-    var groups = groupPackagesByOrigin(body);
+    var enrichmentSummary = enrichCartItemsForOriginPlanning(body);
+
+    try {
+      log.audit({
+        title: "Pacejet origin availability enrichment",
+        details: enrichmentSummary
+      });
+    } catch (_eAvailabilityLog) {}
+
+    var originPlan = buildOriginPlan(body);
+
+    try {
+      log.audit({
+        title: "Pacejet origin plan",
+        details: {
+          mode: originPlan.mode,
+          ruleApplied: originPlan.ruleApplied,
+          forcedLocationId: originPlan.forcedLocationId || "",
+          debug: originPlan.debug || {}
+        }
+      });
+    } catch (_eOriginPlanLog) {}
+
+    var groups = groupPackagesByPlan(body, originPlan);
     var results = {
       ok: true,
-      origins: {}
+      origins: {},
+      originPlan: {
+        mode: originPlan.mode,
+        ruleApplied: originPlan.ruleApplied,
+        forcedLocationId: originPlan.forcedLocationId || ""
+      }
     };
 
     var originKeys = Object.keys(groups);
