@@ -450,8 +450,6 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     };
 
     if (extra) snapshot.extra = extra;
-
-    console.log("[Pacejet][TaxDebug] summary snapshot", snapshot);
   }
 
   function clearSelectedRate(preservePersistence) {

@@ -519,13 +519,6 @@ define("RDT.Pacejet.Service", [
     var filterableSelection = removeForcedAccessorials(selected);
     var filterSource = source || "live";
 
-    console.log(
-      "[Pacejet] selected accessorials at filter time (" + filterSource + ")",
-      JSON.stringify(selected),
-      "filterable:",
-      JSON.stringify(filterableSelection)
-    );
-
     if (!hasAnyAccessorials(filterableSelection)) {
       console.log("[Pacejet] No accessorial filtering applied");
       return rates;
@@ -1958,11 +1951,14 @@ define("RDT.Pacejet.Service", [
       state.allowedAccessorials =
         deriveAccessorialAvailabilityByCarrier(merged);
 
+      var markupEnabled = !!(Config && Config.enableFreightMarkup);
+
       merged.forEach(function (rate) {
         applyFreightMarkup(rate, FreightMarkup);
 
-        // IMPORTANT: the cost used everywhere must be the marked-up cost
-        if (rate.finalCost && rate.finalCost > 0) {
+        // Preserve raw Pacejet cost by default and only expose marked-up cost
+        // when an environment explicitly enables freight markup.
+        if (markupEnabled && rate.finalCost && rate.finalCost > 0) {
           rate.cost = rate.finalCost;
         }
       });

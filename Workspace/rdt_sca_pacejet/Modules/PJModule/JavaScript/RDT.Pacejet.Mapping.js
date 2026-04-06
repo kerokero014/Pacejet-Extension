@@ -3,8 +3,9 @@
 define("RDT.Pacejet.Mapping", [
   "RDT.Pacejet.Config",
   "RDT.Pacejet.CarrierMap",
-  "RDT.Pacejet.State"
-], function (Config, CarrierMap, PacejetState) {
+  "RDT.Pacejet.State",
+  "LiveOrder.Model"
+], function (Config, CarrierMap, PacejetState, LiveOrderModel) {
   "use strict";
 
   function carrierKey(c) {
@@ -77,36 +78,137 @@ define("RDT.Pacejet.Mapping", [
     var key = carrierKey(rate.carrierName || rate.carrier);
     var service = norm(rate.serviceName || rate.service);
 
-    if (key.indexOf("UPS") !== -1)
-      return byCarrier.UPS || CarrierMap.UPS_GROUND;
-    if (key.indexOf("FEDEX") !== -1)
-      return byCarrier.FEDEX || CarrierMap.FEDEX_GROUND;
-    if (key.indexOf("SAIA") !== -1)
-      return byCarrier.SAIA || CarrierMap.SAIA_LTL;
-    if (key.indexOf("ESTES") !== -1)
-      return byCarrier.ESTES || CarrierMap.ESTES_LTL;
-    if (key.indexOf("ODFL") !== -1) return byCarrier.ODFL || "";
+    if (key.indexOf("UPS") !== -1) {
+      return String(byCarrier.UPS || CarrierMap.UPS_GROUND || "");
+    }
+
+    if (key.indexOf("FEDEX") !== -1) {
+      return String(byCarrier.FEDEX || CarrierMap.FEDEX_GROUND || "");
+    }
+
+    if (key.indexOf("SAIA") !== -1) {
+      return String(byCarrier.SAIA || CarrierMap.SAIA_LTL || "");
+    }
+
+    if (key.indexOf("ESTES") !== -1) {
+      return String(byCarrier.ESTES || CarrierMap.ESTES_LTL || "");
+    }
+
+    if (key.indexOf("ODFL") !== -1) {
+      return String(byCarrier.ODFL || "");
+    }
+
+    if (key.indexOf("XPO") !== -1) {
+      return String(byCarrier.XPO || "");
+    }
+
+    if (key.indexOf("RL") !== -1 || key.indexOf("RL_CARRIERS") !== -1) {
+      return String(byCarrier.RL_CARRIERS || byCarrier.RL || "");
+    }
 
     if (
       service.indexOf("pickup") !== -1 ||
       service.indexOf("will call") !== -1
     ) {
-      return CarrierMap.WILL_CALL;
+      return String(CarrierMap.WILL_CALL || "");
     }
 
     return "";
   }
 
+  function getLiveOrderShipmethodMap() {
+    var map = {};
+    var order = null;
+    var methods = [];
+    var i;
+    var method;
+    var id;
+
+    try {
+      order =
+        LiveOrderModel && typeof LiveOrderModel.getInstance === "function"
+          ? LiveOrderModel.getInstance()
+          : null;
+    } catch (_e) {
+      order = null;
+    }
+
+    methods = (order && order.get && order.get("shipmethods")) || [];
+
+    for (i = 0; i < methods.length; i++) {
+      method = methods[i] || {};
+      id = String(method.internalid || "").trim();
+
+      if (id) {
+        map[id] = method;
+      }
+    }
+
+    return map;
+  }
+
+  function isValidShipmethodId(shipCode, validShipmethods) {
+    var id = String(shipCode || "").trim();
+    return !!(id && validShipmethods && validShipmethods[id]);
+  }
+
+  function hasLoadedShipmethods(validShipmethods) {
+    return !!(
+      validShipmethods &&
+      typeof validShipmethods === "object" &&
+      Object.keys(validShipmethods).length
+    );
+  }
+
+  function recordFallback(rate, shipCode) {
+    if (PacejetState && typeof PacejetState.recordFallback === "function") {
+      PacejetState.recordFallback({
+        carrier: rate.carrierName || rate.carrier,
+        service: rate.serviceName || rate.service,
+        shipCode: String(shipCode || "")
+      });
+    }
+  }
+
+  function recordUnmapped(rate) {
+    if (PacejetState && typeof PacejetState.recordUnmapped === "function") {
+      PacejetState.recordUnmapped({
+        carrier: rate.carrierName || rate.carrier,
+        service: rate.serviceName || rate.service,
+        raw: rate.raw || null
+      });
+    }
+  }
+
   function decorateRates(rates) {
-    if (!rates || !rates.length) return rates || [];
+    var validShipmethods = getLiveOrderShipmethodMap();
+    var hasShipmethods = hasLoadedShipmethods(validShipmethods);
+    var i;
+    var rate;
+    var apiShipCode;
+    var explicit;
+    var fallbackCode;
 
-    for (var i = 0; i < rates.length; i++) {
-      var rate = rates[i];
-      var apiShipCode = String((rate && rate.shipCode) || "").trim();
+    if (!rates || !rates.length) {
+      return rates || [];
+    }
 
-      // Trust Pacejet-provided ship codes when present.
-      // Mapping rules are only used to backfill missing ship codes.
-      if (apiShipCode) {
+    console.log(
+      "[Pacejet][Mapping] shipmethods loaded:",
+      hasShipmethods ? Object.keys(validShipmethods) : []
+    );
+
+    for (i = 0; i < rates.length; i++) {
+      rate = rates[i] || {};
+      apiShipCode = String(rate.shipCode || "").trim();
+
+      // 1) Trust API shipCode only if:
+      //    - shipmethods are not loaded yet, OR
+      //    - the API code is valid in current LiveOrder
+      if (
+        apiShipCode &&
+        (!hasShipmethods || isValidShipmethodId(apiShipCode, validShipmethods))
+      ) {
         rate.shipCode = apiShipCode;
         rate._mapping = {
           type: "api",
@@ -115,10 +217,27 @@ define("RDT.Pacejet.Mapping", [
         continue;
       }
 
-      // --- Explicit config mapping ---
-      var explicit = mapViaConfig(rate);
-      if (explicit && explicit.shipCode) {
-        rate.shipCode = explicit.shipCode;
+      if (apiShipCode && hasShipmethods) {
+        console.warn(
+          "[Pacejet][Mapping] Ignoring invalid API shipCode:",
+          apiShipCode,
+          "carrier:",
+          rate.carrierName || rate.carrier,
+          "service:",
+          rate.serviceName || rate.service
+        );
+        rate.shipCode = "";
+      }
+
+      // 2) Explicit config mapping
+      explicit = mapViaConfig(rate);
+      if (
+        explicit &&
+        explicit.shipCode &&
+        (!hasShipmethods ||
+          isValidShipmethodId(explicit.shipCode, validShipmethods))
+      ) {
+        rate.shipCode = String(explicit.shipCode);
         rate._mapping = {
           type: "explicit",
           rule: explicit.rule
@@ -126,36 +245,51 @@ define("RDT.Pacejet.Mapping", [
         continue;
       }
 
-      // --- Fallback mapping ---
-      var fallbackCode = mapViaFallback(rate);
-      if (fallbackCode) {
-        rate.shipCode = fallbackCode;
+      if (explicit && explicit.shipCode && hasShipmethods) {
+        console.warn(
+          "[Pacejet][Mapping] Explicit mapping produced invalid shipCode:",
+          explicit.shipCode,
+          "carrier:",
+          rate.carrierName || rate.carrier,
+          "service:",
+          rate.serviceName || rate.service
+        );
+      }
+
+      // 3) Fallback mapping
+      fallbackCode = mapViaFallback(rate);
+      if (
+        fallbackCode &&
+        (!hasShipmethods || isValidShipmethodId(fallbackCode, validShipmethods))
+      ) {
+        rate.shipCode = String(fallbackCode);
         rate._mapping = {
           type: "fallback",
           rule: null
         };
-
-        PacejetState.recordFallback({
-          carrier: rate.carrierName || rate.carrier,
-          service: rate.serviceName || rate.service,
-          shipCode: fallbackCode
-        });
-
+        recordFallback(rate, fallbackCode);
         continue;
       }
 
-      // --- Unmapped ---
+      if (fallbackCode && hasShipmethods) {
+        console.warn(
+          "[Pacejet][Mapping] Fallback mapping produced invalid shipCode:",
+          fallbackCode,
+          "carrier:",
+          rate.carrierName || rate.carrier,
+          "service:",
+          rate.serviceName || rate.service
+        );
+      }
+
+      // 4) Unmapped / unusable
       rate.shipCode = "";
       rate._mapping = {
         type: "unmapped",
         rule: null
       };
 
-      PacejetState.recordUnmapped({
-        carrier: rate.carrierName || rate.carrier,
-        service: rate.serviceName || rate.service,
-        raw: rate.raw || null
-      });
+      recordUnmapped(rate);
     }
 
     return rates;
