@@ -21,6 +21,7 @@ define("RDT.Pacejet.Pacejet.Mapper", [
       customerFreight: customerFreight || shipperFreight,
       allInCost:
         num(rr && rr.totalFreightWithSurcharges) ||
+        customerFreight ||
         shipperFreight +
           num(rr && rr.totalServiceFees) +
           num(rr && rr.fuelSurcharge)
@@ -68,7 +69,8 @@ define("RDT.Pacejet.Pacejet.Mapper", [
       var pricing = resolveRateCost(rr);
       var serviceFees = num(rr.totalServiceFees || 0);
       var fuel = num(rr.fuelSurcharge || 0);
-      var totalCost = pricing.shipperFreight || pricing.customerFreight;
+      // var totalCost = pricing.shipperFreight || pricing.customerFreight;
+      var totalCost = pricing.customerFreight || pricing.shipperFreight;
 
       if (totalCost <= 0.01) return;
 
@@ -157,11 +159,13 @@ define("RDT.Pacejet.Pacejet.Mapper", [
         num(recommendations[prefix + "ConsignorFreight"]) ||
         num(recommendations[prefix + "ListFreight"]) ||
         0;
+
       var customerFreight =
         num(recommendations[prefix + "ConsigneeFreight"]) || shipperFreight;
+
       var serviceFees = num(recommendations[prefix + "TotalServiceFees"] || 0);
       var fuel = num(recommendations[prefix + "FuelSurcharge"] || 0);
-      var totalCost = shipperFreight || customerFreight;
+      var totalCost = customerFreight || shipperFreight;
 
       if (!carrierNumber || !serviceDescription || totalCost <= 0.01) return;
 
@@ -214,7 +218,7 @@ define("RDT.Pacejet.Pacejet.Mapper", [
         cost: +totalCost.toFixed(2),
         customerFreight: +customerFreight.toFixed(2),
         shipperFreight: +shipperFreight.toFixed(2),
-        allInCost: +(shipperFreight + serviceFees + fuel).toFixed(2),
+        allInCost: +(customerFreight || shipperFreight).toFixed(2),
 
         baseFreight: +shipperFreight.toFixed(2),
         serviceFees: serviceFees,
@@ -228,7 +232,6 @@ define("RDT.Pacejet.Pacejet.Mapper", [
         raw: recommendations
       });
     }
-
     addRecommendation("lowestCost", "lowestCost");
     addRecommendation("fastest", "fastest");
 

@@ -763,7 +763,11 @@ define("RDT.Pacejet.Service", [
 
   function applyFreightMarkup(rate, rules) {
     var baseCost = num(
-      rate.shipperFreight || rate.baseFreight || rate.cost || 0
+      rate.customerFreight ||
+        rate.cost ||
+        rate.shipperFreight ||
+        rate.baseFreight ||
+        0
     );
     var originWithRawMode = (rate.origins || []).find(function (origin) {
       return (
