@@ -52,6 +52,7 @@ define("RDT.Pacejet.State", [], function () {
       accessorialsDirty: false,
       ratesVisible: false,
       ratesLoading: false,
+      selectionApplying: false,
       persistencePending: false
     },
 

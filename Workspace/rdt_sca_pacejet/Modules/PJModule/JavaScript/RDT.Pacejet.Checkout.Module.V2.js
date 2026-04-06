@@ -330,6 +330,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     }
 
     var shipmethodId = getShipmethodId(payload && payload.shipCode);
+    var nativeSynced;
 
     if (!shipmethodId) {
       return jQuery
@@ -344,10 +345,42 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     });
 
     order.set("shipmethod", shipmethodId);
+
+    nativeSynced = syncNativeDeliveryOptionControl(shipmethodId);
+
+    if (!nativeSynced) {
+      return jQuery
+        .Deferred()
+        .reject(
+          new Error(
+            "Selected Pacejet shipmethod could not be synced to the native delivery selector: " +
+              shipmethodId
+          )
+        )
+        .promise();
+    }
+
     return order.save().then(function () {
+      var confirmedShipmethod = getConfirmedOrderShipmethod(order);
+
       logSummarySnapshot(order, "after-native-save", {
-        selectedShipCode: shipmethodId
+        selectedShipCode: shipmethodId,
+        confirmedShipmethod: confirmedShipmethod
       });
+
+      if (confirmedShipmethod !== shipmethodId) {
+        return jQuery
+          .Deferred()
+          .reject(
+            new Error(
+              "Native save did not persist the selected shipmethod. Expected " +
+                shipmethodId +
+                " but found " +
+                (confirmedShipmethod || "[blank]")
+            )
+          )
+          .promise();
+      }
 
       return fetchOrderSummary(order).then(function () {
         syncSelectionFromOrder(order);
@@ -361,6 +394,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       });
     });
   }
+
   function applyCarrierAccessorialRules(payload) {
     if (!payload) return;
 
@@ -454,10 +488,84 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     return String(shipmethod);
   }
 
+  function syncNativeDeliveryOptionControl(shipmethodId) {
+    var normalizedId = getShipmethodId(shipmethodId);
+    var synced = false;
+
+    if (!normalizedId) {
+      return false;
+    }
+
+    var $selects = $(
+      ".order-wizard-shipmethod-module-option-select[data-action='select-delivery-option'], " +
+        ".order-wizard-shipmethod-module-option-select"
+    );
+
+    if (!$selects.length) {
+      console.warn(
+        "[Pacejet] Native delivery select not found for shipmethod:",
+        normalizedId
+      );
+      return false;
+    }
+
+    $selects.each(function () {
+      var $select = $(this);
+      var currentValue = getShipmethodId($select.val());
+
+      if (currentValue === normalizedId) {
+        synced = true;
+        return;
+      }
+
+      if (!$select.find("option[value='" + normalizedId + "']").length) {
+        console.warn(
+          "[Pacejet] Native select does not contain shipmethod option:",
+          normalizedId
+        );
+        return;
+      }
+
+      $select.val(normalizedId);
+      $select.trigger("change");
+      $select.trigger("blur");
+
+      if (getShipmethodId($select.val()) === normalizedId) {
+        synced = true;
+      }
+    });
+
+    return synced;
+  }
+
+  function getConfirmedOrderShipmethod(order) {
+    if (!order || !order.get) {
+      return "";
+    }
+
+    return getShipmethodId(order.get("shipmethod"));
+  }
+
+  function hasConfirmedNativeShipmethod(order) {
+    return !!getConfirmedOrderShipmethod(order);
+  }
+
+  function syncContinueStateFromOrder(order) {
+    PacejetUI.setContinueButtonState(
+      hasConfirmedNativeShipmethod(order) && !state.flags.selectionApplying
+    );
+  }
+
   function syncSelectionFromOrder(order) {
     var selectedRate;
     var preservePersistence = isConfirmationRoute();
+    var selectedRateShipmethodId;
     if (!order || !order.get) return;
+
+    selectedRate = PacejetState.getSelectedRate();
+    selectedRateShipmethodId = selectedRate
+      ? getShipmethodId(selectedRate.shipmethod)
+      : "";
 
     var shipmethodId = getShipmethodId(order.get("shipmethod"));
     if (!shipmethodId) {
@@ -467,12 +575,20 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
     state.selection.shipCode = shipmethodId;
 
-    selectedRate = PacejetState.getSelectedRate();
+    if (!selectedRate || selectedRateShipmethodId !== shipmethodId) {
+      if (state.flags.suppressRefresh && selectedRateShipmethodId) {
+        state.selection.shipCode = selectedRateShipmethodId;
+        state.selection.cost = asNumber(selectedRate.amount, 0);
+        state.selection.carrier = selectedRate.carrier || null;
+        state.selection.service = selectedRate.service || null;
+        state.selection.transitDays = selectedRate.transitDays || null;
+        state.selection.originKey = selectedRate.originKey || null;
+        state.selection.estimatedArrivalDate =
+          selectedRate.estimatedArrivalDate || null;
+        state.selection.origins = normalizeOrigins(selectedRate.origins);
+        return;
+      }
 
-    if (
-      !selectedRate ||
-      getShipmethodId(selectedRate.shipmethod) !== shipmethodId
-    ) {
       clearSelectedRate(preservePersistence);
       return;
     }
@@ -491,7 +607,8 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     if (!order) return;
 
     syncSelectionFromOrder(order);
-    PacejetUI.setContinueButtonState(!!state.selection.shipCode);
+    syncNativeDeliveryOptionControl(state.selection.shipCode);
+    syncContinueStateFromOrder(order);
 
     if (PacejetSummary && PacejetSummary.renderSummaryUI) {
       PacejetSummary.renderSummaryUI(order);
@@ -522,7 +639,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     REVIEW_SYNC_TIMER = setInterval(function () {
       var $host = $(
         ".order-wizard-showshipments-module-shipping-details-method, " +
-        ".order-wizard-showshipments-actionable-module-shipping-details-method"
+          ".order-wizard-showshipments-actionable-module-shipping-details-method"
       ).first();
 
       if ($host.length) {
@@ -645,6 +762,8 @@ define("RDT.Pacejet.Checkout.Module.V2", [
 
     state.flags.suppressRefresh = true;
     state.flags.ratesVisible = true;
+    state.flags.selectionApplying = true;
+    PacejetUI.setContinueButtonState(false);
 
     logSummarySnapshot(order, "before-apply", {
       selectedShipCode: payload.shipCode,
@@ -673,14 +792,18 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     })
       .then(function () {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
+        state.flags.selectionApplying = false;
 
         console.log("[Pacejet] Native shipmethod save applied successfully");
 
+        syncContinueStateFromOrder(order);
         waitForHostThenRefresh(order);
       })
       .fail(function (err) {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
+        state.flags.selectionApplying = false;
         clearSelectedRate();
+        syncContinueStateFromOrder(order);
         console.error(
           "[Pacejet] LiveOrder error",
           err && err.responseText ? err.responseText : err
@@ -712,18 +835,25 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     }
 
     if (!state.flags.ratesVisible) {
-      PacejetUI.render($host, getRenderableRates(state.cache.lastRates || [], "hidden-render-cache"), state, {
-        deferClear: softRefresh,
-        showRates: false,
-        loading: false
-      });
-      PacejetUI.setContinueButtonState(!!state.selection.shipCode);
+      PacejetUI.render(
+        $host,
+        getRenderableRates(state.cache.lastRates || [], "hidden-render-cache"),
+        state,
+        {
+          deferClear: softRefresh,
+          showRates: false,
+          loading: false
+        }
+      );
+      syncContinueStateFromOrder(order);
       $host.css("min-height", "");
       return;
     }
 
     state.flags.ratesLoading = true;
-    PacejetUI.setContinueButtonState(!!state.selection.shipCode);
+    PacejetUI.setContinueButtonState(
+      !!state.selection.shipCode && !state.flags.selectionApplying
+    );
 
     var hostHeight = 0;
     if (softRefresh) {
@@ -737,10 +867,18 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         PacejetUI.clear($host);
         PacejetUI.showLoading($host);
       } else {
-        PacejetUI.render($host, getRenderableRates(state.cache.lastRates || [], "loading-render-cache"), state, {
-          showRates: false,
-          loading: true
-        });
+        PacejetUI.render(
+          $host,
+          getRenderableRates(
+            state.cache.lastRates || [],
+            "loading-render-cache"
+          ),
+          state,
+          {
+            showRates: false,
+            loading: true
+          }
+        );
       }
     }
 
@@ -821,11 +959,18 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         if (state.flags.ratesVisible) {
           refreshFromOrder(order, { mode: "hard" });
         } else {
-          PacejetUI.render($host, getRenderableRates(state.cache.lastRates || [], "wait-host-cache"), state, {
-            showRates: false,
-            loading: false
-          });
-          PacejetUI.setContinueButtonState(!!state.selection.shipCode);
+          PacejetUI.render(
+            $host,
+            getRenderableRates(state.cache.lastRates || [], "wait-host-cache"),
+            state,
+            {
+              showRates: false,
+              loading: false
+            }
+          );
+          PacejetUI.setContinueButtonState(
+            !!state.selection.shipCode && !state.flags.selectionApplying
+          );
         }
         return;
       }

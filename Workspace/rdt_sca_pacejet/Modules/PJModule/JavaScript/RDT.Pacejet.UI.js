@@ -567,20 +567,26 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (
     var selectedShipCode =
       state && state.selection ? String(state.selection.shipCode || "") : "";
 
+    var $selects = $(
+      ".order-wizard-shipmethod-module-option-select[data-action='select-delivery-option'], " +
+        ".order-wizard-shipmethod-module-option-select"
+    );
+    var nativeShipmethodValue = String($selects.first().val() || "").trim();
+
+    var continueEnabled =
+      !!nativeShipmethodValue &&
+      !(state && state.flags && state.flags.selectionApplying);
+
     if (!deferClear) {
       clear($host);
     }
 
     if (!safeRates.length && state?.flags?.truckloadRequired) {
       renderTruckloadNotice($host);
+
       setContinueButtonState(false);
       return;
     }
-
-    var $selects = $(
-      ".order-wizard-shipmethod-module-option-select[data-action='select-delivery-option'], " +
-        ".order-wizard-shipmethod-module-option-select"
-    );
     $selects.addClass("rdt-pj-native-hidden").attr("aria-hidden", "true");
 
     var $accessorialWrapper = $("<div/>").addClass(
@@ -616,7 +622,7 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (
         $selects
           .removeClass("rdt-pj-native-hidden")
           .attr("aria-hidden", "false");
-        setContinueButtonState(!!selectedShipCode);
+        setContinueButtonState(continueEnabled);
         return;
       }
     }
@@ -641,7 +647,7 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (
     }
 
     if (!showRates || !ratesUi || !ratesUi.wrapper) {
-      setContinueButtonState(!!selectedShipCode);
+      setContinueButtonState(continueEnabled);
       return;
     }
 
@@ -658,7 +664,7 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (
         .attr("aria-checked", "false");
 
       $row.addClass("rdt-pj-row--selected").attr("aria-checked", "true");
-      setContinueButtonState(true);
+      setContinueButtonState(false);
 
       var shipCode = $row.attr("data-shipcode") || "";
       var cost = Number($row.attr("data-cost") || 0);
