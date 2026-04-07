@@ -147,6 +147,23 @@ define("RDT.Pacejet.V2", [
     return null;
   }
 
+  function extractSnapshotTotals(data) {
+    var snapshot = data && data.snapshot && typeof data.snapshot === "object"
+      ? data.snapshot
+      : null;
+
+    if (!snapshot) {
+      return null;
+    }
+
+    return {
+      subtotal: +asNumber(snapshot.subtotal, 0).toFixed(2),
+      shipping: +asNumber(snapshot.shippingcost, snapshot.shipping).toFixed(2),
+      tax: +asNumber(snapshot.taxtotal, snapshot.tax).toFixed(2),
+      total: +asNumber(snapshot.total, 0).toFixed(2)
+    };
+  }
+
   function computePayloadTotals(order, shippingAmount, summaryData) {
     var confirmation = safeGet(order, "confirmation") || {};
     var confirmationSummary =
@@ -201,18 +218,8 @@ define("RDT.Pacejet.V2", [
         : summaryShipping,
       summaryShipping
     );
-    var effectiveTaxRate = subtotal > 0 ? nativeTax / subtotal : 0;
-    var tax = +((subtotal + shipping) * effectiveTaxRate).toFixed(2);
+    var tax = +nativeTax.toFixed(2);
     var total = +(subtotal + shipping + tax).toFixed(2);
-
-    if (
-      summaryData &&
-      asNumber(summaryData.shipping, shipping) === shipping &&
-      asNumber(summaryData.tax, tax) > tax
-    ) {
-      tax = +asNumber(summaryData.tax, tax).toFixed(2);
-      total = +asNumber(summaryData.total, subtotal + shipping + tax).toFixed(2);
-    }
 
     return {
       subtotal: +subtotal.toFixed(2),
@@ -522,8 +529,17 @@ define("RDT.Pacejet.V2", [
           PacejetState.setPersistenceResult &&
           response &&
           response.ok &&
-          response.totals
+          (response.totals || response.snapshot)
         ) {
+          var authoritativeTotals =
+            extractSnapshotTotals(response) ||
+            {
+              subtotal: Number(response.totals.subtotal || 0),
+              shipping: Number(response.totals.shipping || 0),
+              tax: Number(response.totals.tax || 0),
+              total: Number(response.totals.total || 0)
+            };
+
           PacejetState.setPersistenceResult({
             saved: true,
             orderId: payload.orderId,
@@ -532,12 +548,7 @@ define("RDT.Pacejet.V2", [
             carrier: payload.carrier,
             service: payload.service,
             transitDays: payload.transitDays,
-            totals: {
-              subtotal: Number(response.totals.subtotal || 0),
-              shipping: Number(response.totals.shipping || 0),
-              tax: Number(response.totals.tax || 0),
-              total: Number(response.totals.total || 0)
-            }
+            totals: authoritativeTotals
           });
         }
 

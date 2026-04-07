@@ -413,10 +413,8 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     var summary = cloneObject(sourceSummary);
     var authoritativeSummary = getPersistedStateSummaryForOrder(order);
     var resolvedShipping = getResolvedShippingAmount(order, summary);
-    var nativeShipping;
     var subtotal;
     var nativeTax;
-    var effectiveTaxRate;
     var shipping;
     var taxTotal;
     var total;
@@ -467,12 +465,12 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
       return summary;
     }
 
-    nativeShipping = asNumber(
-      getSummaryValue(summary, shippingKeys),
-      0
-    );
-
-    if (asNumber(resolvedShipping.amount, 0) === nativeShipping) {
+    if (
+      asNumber(
+        getSummaryValue(summary, shippingKeys),
+        0
+      ) === asNumber(resolvedShipping.amount, 0)
+    ) {
       return summary;
     }
 
@@ -486,9 +484,8 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
 
     subtotal = asNumber(getSummaryValue(summary, subtotalKeys), 0);
     nativeTax = asNumber(getSummaryValue(summary, taxKeys), 0);
-    effectiveTaxRate = subtotal > 0 ? nativeTax / subtotal : 0;
     shipping = asNumber(resolvedShipping.amount, 0);
-    taxTotal = +((subtotal + shipping) * effectiveTaxRate).toFixed(2);
+    taxTotal = +nativeTax.toFixed(2);
     total = +(subtotal + shipping + taxTotal).toFixed(2);
 
     summary.shipping = shipping;

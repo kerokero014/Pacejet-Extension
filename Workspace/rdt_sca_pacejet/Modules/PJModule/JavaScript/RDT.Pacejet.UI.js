@@ -4,11 +4,7 @@ define("RDT.Pacejet.UI", [
   "jQuery",
   "RDT.Pacejet.State",
   "RDT.Pacejet.Config"
-], function (
-  jQuery,
-  PacejetState,
-  Config
-) {
+], function (jQuery, PacejetState, Config) {
   "use strict";
 
   var $ = jQuery;
@@ -337,11 +333,14 @@ define("RDT.Pacejet.UI", [
   }
 
   function getEstimatedArrivalDate(rate) {
+    var rawRate = (rate && rate.raw) || {};
     var raw =
       (rate &&
-        (rate.estimatedArrivalDate ||
-          rate.estDelivery ||
+        (rate.estDelivery ||
           rate.arrivalDateText ||
+          rate.estimatedArrivalDate ||
+          rawRate.arrivalDateText ||
+          rawRate.ArrivalDateText ||
           "")) ||
       "";
 
@@ -447,7 +446,9 @@ define("RDT.Pacejet.UI", [
       var displayCost =
         Config && Config.enableFreightMarkup && rate.finalCost
           ? rate.finalCost
-          : rate.cost;
+          : rate.customerFreight && rate.customerFreight > 0
+            ? rate.customerFreight
+            : rate.cost;
       var price = Number((displayCost || 0).toFixed(2));
       var carrier = rate.carrierName || rate.carrier || "";
       var service = rate.serviceName || rate.service || "";

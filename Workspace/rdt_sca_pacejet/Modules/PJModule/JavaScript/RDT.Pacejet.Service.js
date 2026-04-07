@@ -1938,6 +1938,28 @@ define("RDT.Pacejet.Service", [
         "merged-final"
       );
 
+      state.allowedAccessorials =
+        deriveAccessorialAvailabilityByCarrier(merged);
+
+      var markupEnabled = !!(Config && Config.enableFreightMarkup);
+
+      merged.forEach(function (rate) {
+        applyFreightMarkup(rate, FreightMarkup);
+
+        // Default to Pacejet's customer-facing freight so the UI matches the
+        // native NetSuite shipmethod amounts. Only swap to marked-up cost when
+        // markup is explicitly enabled for this environment.
+        if (!markupEnabled && rate.customerFreight && rate.customerFreight > 0) {
+          rate.cost = +Number(rate.customerFreight).toFixed(2);
+        } else if (markupEnabled && rate.finalCost && rate.finalCost > 0) {
+          rate.cost = rate.finalCost;
+        }
+      });
+
+      merged.sort(function (a, b) {
+        return Number(a.cost || 0) - Number(b.cost || 0);
+      });
+
       if (!hasAnyAccessorials(selectedAccessorials)) {
         state.cache.baseHash = baseHash;
         state.cache.baseRates = merged.map(function (r) {
@@ -1947,21 +1969,6 @@ define("RDT.Pacejet.Service", [
           };
         });
       }
-
-      state.allowedAccessorials =
-        deriveAccessorialAvailabilityByCarrier(merged);
-
-      var markupEnabled = !!(Config && Config.enableFreightMarkup);
-
-      merged.forEach(function (rate) {
-        applyFreightMarkup(rate, FreightMarkup);
-
-        // Preserve raw Pacejet cost by default and only expose marked-up cost
-        // when an environment explicitly enables freight markup.
-        if (markupEnabled && rate.finalCost && rate.finalCost > 0) {
-          rate.cost = rate.finalCost;
-        }
-      });
 
       applyAccessorialDelta(merged);
 
