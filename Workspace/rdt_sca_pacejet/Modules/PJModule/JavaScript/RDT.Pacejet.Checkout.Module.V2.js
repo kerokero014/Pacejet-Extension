@@ -792,8 +792,6 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
         state.flags.selectionApplying = false;
 
-        console.log("[Pacejet] Native shipmethod save applied successfully");
-
         syncContinueStateFromOrder(order);
         waitForHostThenRefresh(order);
       })
@@ -884,6 +882,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       .then(function (rates) {
         var renderableRates = getRenderableRates(rates, "fetch-success-render");
         state.flags.ratesLoading = false;
+        state.flags.ratesFetched = true;
         syncSelectionFromOrder(order);
         PacejetUI.render($host, renderableRates, state, {
           deferClear: softRefresh,

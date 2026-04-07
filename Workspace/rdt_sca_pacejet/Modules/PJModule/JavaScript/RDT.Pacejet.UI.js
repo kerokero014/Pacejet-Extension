@@ -590,7 +590,7 @@ define("RDT.Pacejet.UI", [
       clear($host);
     }
 
-    if (!safeRates.length) {
+    if (!safeRates.length && !isLoading && state?.flags?.ratesFetched) {
       renderTruckloadNotice($host);
 
       setContinueButtonState(false);

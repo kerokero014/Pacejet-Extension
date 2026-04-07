@@ -193,11 +193,6 @@ define("RDT.Pacejet.Mapping", [
       return rates || [];
     }
 
-    console.log(
-      "[Pacejet][Mapping] shipmethods loaded:",
-      hasShipmethods ? Object.keys(validShipmethods) : []
-    );
-
     for (i = 0; i < rates.length; i++) {
       rate = rates[i] || {};
       apiShipCode = String(rate.shipCode || "").trim();
@@ -217,18 +212,6 @@ define("RDT.Pacejet.Mapping", [
         continue;
       }
 
-      if (apiShipCode && hasShipmethods) {
-        console.warn(
-          "[Pacejet][Mapping] Ignoring invalid API shipCode:",
-          apiShipCode,
-          "carrier:",
-          rate.carrierName || rate.carrier,
-          "service:",
-          rate.serviceName || rate.service
-        );
-        rate.shipCode = "";
-      }
-
       // 2) Explicit config mapping
       explicit = mapViaConfig(rate);
       if (
@@ -245,17 +228,6 @@ define("RDT.Pacejet.Mapping", [
         continue;
       }
 
-      if (explicit && explicit.shipCode && hasShipmethods) {
-        console.warn(
-          "[Pacejet][Mapping] Explicit mapping produced invalid shipCode:",
-          explicit.shipCode,
-          "carrier:",
-          rate.carrierName || rate.carrier,
-          "service:",
-          rate.serviceName || rate.service
-        );
-      }
-
       // 3) Fallback mapping
       fallbackCode = mapViaFallback(rate);
       if (
@@ -269,17 +241,6 @@ define("RDT.Pacejet.Mapping", [
         };
         recordFallback(rate, fallbackCode);
         continue;
-      }
-
-      if (fallbackCode && hasShipmethods) {
-        console.warn(
-          "[Pacejet][Mapping] Fallback mapping produced invalid shipCode:",
-          fallbackCode,
-          "carrier:",
-          rate.carrierName || rate.carrier,
-          "service:",
-          rate.serviceName || rate.service
-        );
       }
 
       // 4) Unmapped / unusable

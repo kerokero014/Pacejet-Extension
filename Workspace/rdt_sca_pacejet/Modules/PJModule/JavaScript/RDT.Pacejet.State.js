@@ -49,6 +49,7 @@ define("RDT.Pacejet.State", [], function () {
       suppressRefresh: false,
       autoselectDone: false,
       truckloadRequired: false,
+      ratesFetched: false,
       accessorialsDirty: false,
       ratesVisible: false,
       ratesLoading: false,
@@ -223,6 +224,7 @@ define("RDT.Pacejet.State", [], function () {
 
       state.selectedRate = null;
       state.flags.accessorialsDirty = false;
+      state.flags.ratesFetched = false;
       state.flags.ratesVisible = false;
       state.flags.ratesLoading = false;
       state.flags.persistencePending = false;
