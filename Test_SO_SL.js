@@ -57,6 +57,14 @@ define(["N/record", "N/log"], function (record, log) {
     );
   }
 
+  function safeJsonParse(value, fallback) {
+    try {
+      return JSON.parse(value);
+    } catch (_e) {
+      return fallback;
+    }
+  }
+
   function normalizeTotals(value) {
     var totals = value && typeof value === "object" ? value : null;
 
@@ -263,10 +271,80 @@ define(["N/record", "N/log"], function (record, log) {
     });
   }
 
+  function extractLocationIdFromOriginKey(originKey) {
+    var value = asString(originKey).trim();
+    var locMatch = value.match(/^LOC_(\d+)$/i);
+    var mainMatch = value.match(/^MAIN\|(\d+)$/i);
+
+    if (locMatch) {
+      return locMatch[1];
+    }
+
+    if (mainMatch) {
+      return mainMatch[1];
+    }
+
+    return "";
+  }
+
+  function collectWarehouseLocationIds(origins) {
+    var ids = [];
+
+    if (!Array.isArray(origins)) {
+      return ids;
+    }
+
+    origins.forEach(function (origin) {
+      var locationId = "";
+
+      if (!origin || origin.dropShip) {
+        return;
+      }
+
+      locationId = extractLocationIdFromOriginKey(origin.originKey);
+
+      if (
+        !locationId &&
+        origin.Origin &&
+        asString(origin.Origin.LocationType).toUpperCase() === "FACILITY"
+      ) {
+        locationId = asString(origin.Origin.LocationCode).trim();
+      }
+
+      if (locationId && ids.indexOf(locationId) === -1) {
+        ids.push(locationId);
+      }
+    });
+
+    return ids;
+  }
+
+  function resolveSalesOrderLocationId(data, quoteJson) {
+    var parsedQuote = safeJsonParse(quoteJson || "{}", {});
+    var originIds = collectWarehouseLocationIds(parsedQuote.origins);
+    var directLocationId = asString(data.locationId).trim();
+    var fallbackLocationId = extractLocationIdFromOriginKey(data.originKey);
+
+    if (/^\d+$/.test(directLocationId)) {
+      return directLocationId;
+    }
+
+    if (originIds.length === 1) {
+      return originIds[0];
+    }
+
+    if (originIds.length > 1) {
+      return "";
+    }
+
+    return fallbackLocationId;
+  }
+
   function buildSnapshot(so) {
     return {
       id: so.id || "",
       tranid: so.getValue({ fieldId: "tranid" }) || "",
+      location: so.getValue({ fieldId: "location" }) || "",
       shipmethod: so.getValue({ fieldId: "shipmethod" }) || "",
       subtotal: Number(so.getValue({ fieldId: "subtotal" }) || 0),
       shippingcost: Number(so.getValue({ fieldId: "shippingcost" }) || 0),
@@ -422,10 +500,13 @@ define(["N/record", "N/log"], function (record, log) {
       );
 
       var quoteJson = asString(data.quoteJson);
+      var resolvedLocationId = resolveSalesOrderLocationId(data, quoteJson);
+
       if (quoteJson.length > 3900) {
         quoteJson = quoteJson.slice(0, 3900);
       }
       maybeSet(so, BODY_FIELDS.quoteJson, quoteJson);
+      maybeSet(so, "location", resolvedLocationId);
 
       // Useful when tax engines need recalculation
       try {
@@ -485,6 +566,7 @@ define(["N/record", "N/log"], function (record, log) {
 
       log.audit("Pacejet test apply - after", {
         snapshot: finalSnapshot,
+        resolvedLocationId: resolvedLocationId,
         responseTotals: responseTotals,
         requestedTotals: requestedTotals,
         taxOverrideResults: taxOverrideResults,
@@ -494,6 +576,7 @@ define(["N/record", "N/log"], function (record, log) {
       return writeJson(res, 200, {
         ok: true,
         orderId: savedId,
+        resolvedLocationId: resolvedLocationId,
         totals: responseTotals,
         snapshot: finalSnapshot,
         taxDiagnostics: taxDiagnostics
