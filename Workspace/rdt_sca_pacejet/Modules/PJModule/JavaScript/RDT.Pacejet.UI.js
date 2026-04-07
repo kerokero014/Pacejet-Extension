@@ -1,8 +1,13 @@
 /// <amd-module name="RDT.Pacejet.UI"/>
 
-define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (
+define("RDT.Pacejet.UI", [
+  "jQuery",
+  "RDT.Pacejet.State",
+  "RDT.Pacejet.Config"
+], function (
   jQuery,
-  PacejetState
+  PacejetState,
+  Config
 ) {
   "use strict";
 
@@ -439,7 +444,11 @@ define("RDT.Pacejet.UI", ["jQuery", "RDT.Pacejet.State"], function (
       if (mappingType === "unmapped" && rate.shipCode) continue;
 
       var shipCode = String(rate.shipCode || "");
-      var price = Number((rate.finalCost || rate.cost || 0).toFixed(2));
+      var displayCost =
+        Config && Config.enableFreightMarkup && rate.finalCost
+          ? rate.finalCost
+          : rate.cost;
+      var price = Number((displayCost || 0).toFixed(2));
       var carrier = rate.carrierName || rate.carrier || "";
       var service = rate.serviceName || rate.service || "";
 
