@@ -142,13 +142,12 @@ define("RDT.Pacejet.UI", [
     var html = `
     <div class="rdt-pj-truckload-notice">
       <div class="rdt-pj-truckload-title">
-        Truckload Review
+        Shipping Review
       </div>
       <div class="rdt-pj-truckload-body">
-        This order exceeds <strong>20 linear feet</strong> or
-        <strong>20,000 lbs</strong>. Curecrete will review truckload
-        options and follow up within <strong>24 hours</strong>
-        with the best available rate.
+        Shipping rates are not currently available for this order.
+        Curecrete will review the shipment and follow up within
+        <strong>24 hours</strong> with the best available rate.
       </div>
     </div>
   `;
@@ -591,7 +590,7 @@ define("RDT.Pacejet.UI", [
       clear($host);
     }
 
-    if (!safeRates.length && state?.flags?.truckloadRequired) {
+    if (!safeRates.length) {
       renderTruckloadNotice($host);
 
       setContinueButtonState(false);

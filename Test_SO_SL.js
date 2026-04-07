@@ -271,6 +271,33 @@ define(["N/record", "N/log"], function (record, log) {
     });
   }
 
+  function maybeSetSelect(rec, fieldId, value, results) {
+    var textValue = asString(value).trim();
+
+    if (!textValue) {
+      return false;
+    }
+
+    try {
+      rec.setValue({
+        fieldId: fieldId,
+        value: Number(textValue)
+      });
+
+      if (results) {
+        results[fieldId] = textValue;
+      }
+
+      return true;
+    } catch (e) {
+      if (results) {
+        results[fieldId] = "FAILED: " + (e.message || String(e));
+      }
+
+      return false;
+    }
+  }
+
   function extractLocationIdFromOriginKey(originKey) {
     var value = asString(originKey).trim();
     var locMatch = value.match(/^LOC_(\d+)$/i);
@@ -338,6 +365,34 @@ define(["N/record", "N/log"], function (record, log) {
     }
 
     return fallbackLocationId;
+  }
+
+  function buildLocationDiagnostics(data, quoteJson, resolvedLocationId, setResult) {
+    var parsedQuote = safeJsonParse(quoteJson || "{}", {});
+    var quoteOrigins = Array.isArray(parsedQuote.origins) ? parsedQuote.origins : [];
+
+    return {
+      requestLocationId: asString(data.locationId).trim(),
+      requestOriginKey: asString(data.originKey).trim(),
+      quoteOriginCount: quoteOrigins.length,
+      quoteOriginKeys: quoteOrigins.map(function (origin) {
+        return origin && origin.originKey ? String(origin.originKey) : "";
+      }),
+      quoteLocationCodes: quoteOrigins
+        .map(function (origin) {
+          return origin &&
+            origin.Origin &&
+            origin.Origin.LocationCode !== undefined &&
+            origin.Origin.LocationCode !== null
+            ? String(origin.Origin.LocationCode)
+            : "";
+        })
+        .filter(function (value) {
+          return !!value;
+        }),
+      resolvedLocationId: asString(resolvedLocationId).trim(),
+      setResult: setResult || {}
+    };
   }
 
   function buildSnapshot(so) {
@@ -431,6 +486,7 @@ define(["N/record", "N/log"], function (record, log) {
     var taxDetailsBeforeSave = null;
     var taxDetailsAfterSave = null;
     var taxFieldSnapshot = null;
+    var locationSetResults = {};
 
     if (!/^\d+$/.test(orderId)) {
       return writeJson(res, 400, {
@@ -506,7 +562,7 @@ define(["N/record", "N/log"], function (record, log) {
         quoteJson = quoteJson.slice(0, 3900);
       }
       maybeSet(so, BODY_FIELDS.quoteJson, quoteJson);
-      maybeSet(so, "location", resolvedLocationId);
+      maybeSetSelect(so, "location", resolvedLocationId, locationSetResults);
 
       // Useful when tax engines need recalculation
       try {
@@ -563,10 +619,17 @@ define(["N/record", "N/log"], function (record, log) {
         taxDetailsAfterSave,
         taxFieldSnapshot
       );
+      var locationDiagnostics = buildLocationDiagnostics(
+        data,
+        quoteJson,
+        resolvedLocationId,
+        locationSetResults
+      );
 
       log.audit("Pacejet test apply - after", {
         snapshot: finalSnapshot,
         resolvedLocationId: resolvedLocationId,
+        locationDiagnostics: locationDiagnostics,
         responseTotals: responseTotals,
         requestedTotals: requestedTotals,
         taxOverrideResults: taxOverrideResults,
@@ -577,6 +640,7 @@ define(["N/record", "N/log"], function (record, log) {
         ok: true,
         orderId: savedId,
         resolvedLocationId: resolvedLocationId,
+        locationDiagnostics: locationDiagnostics,
         totals: responseTotals,
         snapshot: finalSnapshot,
         taxDiagnostics: taxDiagnostics
