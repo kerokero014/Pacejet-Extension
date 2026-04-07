@@ -100,8 +100,11 @@ define(["N/record", "N/log"], function (record, log) {
 
     if (
       requestedTotals &&
+      almostEqual(snapshotTotals.subtotal, requestedTotals.subtotal) &&
       almostEqual(snapshotTotals.shipping, amount) &&
-      almostEqual(requestedTotals.shipping, amount)
+      almostEqual(requestedTotals.shipping, amount) &&
+      almostEqual(snapshotTotals.tax, requestedTotals.tax) &&
+      almostEqual(snapshotTotals.total, requestedTotals.total)
     ) {
       return {
         subtotal: requestedTotals.subtotal,
@@ -302,6 +305,8 @@ define(["N/record", "N/log"], function (record, log) {
     var value = asString(originKey).trim();
     var locMatch = value.match(/^LOC_(\d+)$/i);
     var mainMatch = value.match(/^MAIN\|(\d+)$/i);
+    var facilityMatch = value.match(/^FACILITY\|MAIN\|(\d+)$/i);
+    var trailingIdMatch = value.match(/\|(\d+)$/);
 
     if (locMatch) {
       return locMatch[1];
@@ -309,6 +314,14 @@ define(["N/record", "N/log"], function (record, log) {
 
     if (mainMatch) {
       return mainMatch[1];
+    }
+
+    if (facilityMatch) {
+      return facilityMatch[1];
+    }
+
+    if (trailingIdMatch) {
+      return trailingIdMatch[1];
     }
 
     return "";
