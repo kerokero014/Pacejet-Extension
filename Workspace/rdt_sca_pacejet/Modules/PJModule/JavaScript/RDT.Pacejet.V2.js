@@ -25,8 +25,9 @@ define("RDT.Pacejet.V2", [
   var CONFIRMATION_POLL_ATTEMPTS = 0;
   var TEST_APPLY_IN_FLIGHT = false;
   var LAST_APPLIED_ORDER_ID = null;
-
-  console.log("[Pacejet] Pacejet V2 Module Loaded");
+  var DEPOSIT_SYNC_URL = "/app/site/hosting/scriptlet.nl?script=3951&deploy=1";
+  var DEPOSIT_IN_FLIGHT = false;
+  var LAST_DEPOSIT_ORDER_ID = null;
 
   function getOrder() {
     try {
@@ -43,6 +44,52 @@ define("RDT.Pacejet.V2", [
       (window.location.hash || "").toLowerCase().indexOf("shipping/address") !==
       -1
     );
+  }
+
+  function maybeRunDepositSync(orderId) {
+    var normalizedOrderId = orderId == null ? "" : String(orderId);
+
+    if (!normalizedOrderId) {
+      return;
+    }
+
+    if (DEPOSIT_IN_FLIGHT) {
+      return;
+    }
+
+    if (LAST_DEPOSIT_ORDER_ID === normalizedOrderId) {
+      return;
+    }
+
+    DEPOSIT_IN_FLIGHT = true;
+
+    $.ajax({
+      url: DEPOSIT_SYNC_URL,
+      type: "POST",
+      contentType: "application/json",
+      dataType: "json",
+      data: JSON.stringify({
+        soId: normalizedOrderId
+      })
+    })
+      .done(function (response) {
+        LAST_DEPOSIT_ORDER_ID = normalizedOrderId;
+        try {
+          console.log("[Pacejet] deposit sync success", response);
+        } catch (_e) {}
+      })
+      .fail(function (xhr) {
+        try {
+          console.error("[Pacejet] deposit sync failed", {
+            status: xhr && xhr.status,
+            statusText: xhr && xhr.statusText,
+            responseText: xhr && xhr.responseText
+          });
+        } catch (_e) {}
+      })
+      .always(function () {
+        DEPOSIT_IN_FLIGHT = false;
+      });
   }
 
   function isConfirmationStep() {
@@ -148,9 +195,10 @@ define("RDT.Pacejet.V2", [
   }
 
   function extractSnapshotTotals(data) {
-    var snapshot = data && data.snapshot && typeof data.snapshot === "object"
-      ? data.snapshot
-      : null;
+    var snapshot =
+      data && data.snapshot && typeof data.snapshot === "object"
+        ? data.snapshot
+        : null;
 
     if (!snapshot) {
       return null;
@@ -213,7 +261,9 @@ define("RDT.Pacejet.V2", [
       0
     );
     var shipping = asNumber(
-      shippingAmount !== null && shippingAmount !== undefined && shippingAmount !== ""
+      shippingAmount !== null &&
+        shippingAmount !== undefined &&
+        shippingAmount !== ""
         ? shippingAmount
         : summaryShipping,
       summaryShipping
@@ -230,8 +280,7 @@ define("RDT.Pacejet.V2", [
   }
 
   function getSelectedAccessorialPayload() {
-    var state =
-      PacejetState && PacejetState.get ? PacejetState.get() : null;
+    var state = PacejetState && PacejetState.get ? PacejetState.get() : null;
     var selection =
       state &&
       state.selection &&
@@ -415,7 +464,11 @@ define("RDT.Pacejet.V2", [
       pacejetAmount = confirmationSummary.shippingcost;
     }
 
-    var summaryData = computePayloadTotals(order, pacejetAmount, renderedSummary);
+    var summaryData = computePayloadTotals(
+      order,
+      pacejetAmount,
+      renderedSummary
+    );
     var selectedAccessorials = getSelectedAccessorialPayload();
 
     return {
@@ -439,7 +492,8 @@ define("RDT.Pacejet.V2", [
       residential:
         selectedAccessorials.residential || asBooleanLike(residential),
       appointmentTruck:
-        selectedAccessorials.appointmentTruck || asBooleanLike(appointmentTruck),
+        selectedAccessorials.appointmentTruck ||
+        asBooleanLike(appointmentTruck),
       selfStorage:
         selectedAccessorials.selfStorage || asBooleanLike(selfStorage),
       schoolDelivery:
@@ -447,7 +501,8 @@ define("RDT.Pacejet.V2", [
       insideDelivery:
         selectedAccessorials.insideDelivery || asBooleanLike(insideDelivery),
       accessHazmatParcel:
-        selectedAccessorials.accessHazmatParcel || asBooleanLike(accessHazmatParcel),
+        selectedAccessorials.accessHazmatParcel ||
+        asBooleanLike(accessHazmatParcel),
       dangerousGoods:
         selectedAccessorials.dangerousGoods || asBooleanLike(dangerousGoods),
       noneAdditionalFeesMayApply:
@@ -531,14 +586,12 @@ define("RDT.Pacejet.V2", [
           response.ok &&
           (response.totals || response.snapshot)
         ) {
-          var authoritativeTotals =
-            extractSnapshotTotals(response) ||
-            {
-              subtotal: Number(response.totals.subtotal || 0),
-              shipping: Number(response.totals.shipping || 0),
-              tax: Number(response.totals.tax || 0),
-              total: Number(response.totals.total || 0)
-            };
+          var authoritativeTotals = extractSnapshotTotals(response) || {
+            subtotal: Number(response.totals.subtotal || 0),
+            shipping: Number(response.totals.shipping || 0),
+            tax: Number(response.totals.tax || 0),
+            total: Number(response.totals.total || 0)
+          };
 
           PacejetState.setPersistenceResult({
             saved: true,
@@ -550,6 +603,13 @@ define("RDT.Pacejet.V2", [
             transitDays: payload.transitDays,
             totals: authoritativeTotals
           });
+
+          var finalOrderId =
+            (response && response.orderId) ||
+            (payload && payload.orderId) ||
+            null;
+
+          maybeRunDepositSync(finalOrderId);
         }
 
         if (PacejetCheckout && PacejetCheckout.syncCurrentRoute) {
