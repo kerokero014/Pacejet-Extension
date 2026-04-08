@@ -576,11 +576,6 @@ define("RDT.Pacejet.Pacejet.Mapper", [
     var aggregated = aggregateMultiOriginRates(suiteletResponse);
     var mapped = [];
 
-    console.log(
-      "[Mapper] Aggregating origins:",
-      Object.keys((suiteletResponse && suiteletResponse.origins) || {})
-    );
-
     aggregated.forEach(function (agg) {
       // Build one display rate (we already have carrier/service/mode/shipCode)
       var rate = {
