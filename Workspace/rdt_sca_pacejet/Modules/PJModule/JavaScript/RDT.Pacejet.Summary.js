@@ -1,10 +1,10 @@
 /// <amd-module name="RDT.Pacejet.Summary"/>
 
-define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"], function (
-  jQuery,
-  PacejetState,
-  LiveOrderModel
-) {
+define("RDT.Pacejet.Summary", [
+  "jQuery",
+  "RDT.Pacejet.State",
+  "LiveOrder.Model"
+], function (jQuery, PacejetState, LiveOrderModel) {
   "use strict";
 
   var $ = jQuery;
@@ -132,7 +132,9 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     }
 
     if (
-      (!summary.shippingcost && !summary.shippingCost && !summary.shipping) &&
+      !summary.shippingcost &&
+      !summary.shippingCost &&
+      !summary.shipping &&
       confirmationSummary.shippingcost !== undefined &&
       confirmationSummary.shippingcost !== null
     ) {
@@ -180,15 +182,27 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
       return "";
     }
 
-    if (field.value !== undefined && field.value !== null && field.value !== "") {
+    if (
+      field.value !== undefined &&
+      field.value !== null &&
+      field.value !== ""
+    ) {
       return field.value;
     }
 
-    if (field.internalid !== undefined && field.internalid !== null && field.internalid !== "") {
+    if (
+      field.internalid !== undefined &&
+      field.internalid !== null &&
+      field.internalid !== ""
+    ) {
       return field.internalid;
     }
 
-    if (field.internalId !== undefined && field.internalId !== null && field.internalId !== "") {
+    if (
+      field.internalId !== undefined &&
+      field.internalId !== null &&
+      field.internalId !== ""
+    ) {
       return field.internalId;
     }
 
@@ -200,7 +214,9 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
       return "";
     }
 
-    return String(field.id || field.name || field.fieldid || field.fieldId || "");
+    return String(
+      field.id || field.name || field.fieldid || field.fieldId || ""
+    );
   }
 
   function findFieldValueInRaw(raw, fieldId, depth, seen) {
@@ -288,7 +304,11 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
 
     if (order.get) {
       directValue = order.get(fieldId);
-      if (directValue !== undefined && directValue !== null && directValue !== "") {
+      if (
+        directValue !== undefined &&
+        directValue !== null &&
+        directValue !== ""
+      ) {
         return directValue;
       }
     }
@@ -325,7 +345,9 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     );
     var currentConfirmationId = getOrderConfirmationId(order);
     var persistedOrderId =
-      persistence && persistence.orderId !== undefined && persistence.orderId !== null
+      persistence &&
+      persistence.orderId !== undefined &&
+      persistence.orderId !== null
         ? String(persistence.orderId)
         : "";
     var shipmethodMatches =
@@ -388,7 +410,11 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
       };
     }
 
-    if (selectedRate && selectedRate.amount !== undefined && selectedRate.amount !== null) {
+    if (
+      selectedRate &&
+      selectedRate.amount !== undefined &&
+      selectedRate.amount !== null
+    ) {
       return {
         amount: asNumber(selectedRate.amount, nativeShipping),
         source: "selectedRate"
@@ -466,10 +492,8 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
     }
 
     if (
-      asNumber(
-        getSummaryValue(summary, shippingKeys),
-        0
-      ) === asNumber(resolvedShipping.amount, 0)
+      asNumber(getSummaryValue(summary, shippingKeys), 0) ===
+      asNumber(resolvedShipping.amount, 0)
     ) {
       return summary;
     }
@@ -921,7 +945,9 @@ define("RDT.Pacejet.Summary", ["jQuery", "RDT.Pacejet.State", "LiveOrder.Model"]
 
     $container.find(selectorsToShow.join(", ")).show();
     $container
-      .find(".order-wizard-cart-summary-subtotal-text, .order-wizard-cart-summary-subtotal-legend")
+      .find(
+        ".order-wizard-cart-summary-subtotal-text, .order-wizard-cart-summary-subtotal-legend"
+      )
       .show();
     $container.find(".rdt-pj-confirmation-summary").remove();
   }

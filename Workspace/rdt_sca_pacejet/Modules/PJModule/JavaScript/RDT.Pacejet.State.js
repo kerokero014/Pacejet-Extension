@@ -89,7 +89,11 @@ define("RDT.Pacejet.State", [], function () {
         }
       });
 
-      if (Object.keys(forced).some(function (key) { return forced[key]; })) {
+      if (
+        Object.keys(forced).some(function (key) {
+          return forced[key];
+        })
+      ) {
         selection[NONE_ACCESSORIAL_ID] = false;
       }
 
@@ -109,7 +113,8 @@ define("RDT.Pacejet.State", [], function () {
     },
 
     setSelectedRate: function (rate) {
-      state.selectedRate = rate && typeof rate === "object" ? clone(rate) : null;
+      state.selectedRate =
+        rate && typeof rate === "object" ? clone(rate) : null;
       return this.getSelectedRate();
     },
 
@@ -141,7 +146,8 @@ define("RDT.Pacejet.State", [], function () {
         carrier: data.carrier || null,
         service: data.service || null,
         transitDays: data.transitDays || null,
-        totals: data.totals && typeof data.totals === "object" ? data.totals : null
+        totals:
+          data.totals && typeof data.totals === "object" ? data.totals : null
       };
     },
 

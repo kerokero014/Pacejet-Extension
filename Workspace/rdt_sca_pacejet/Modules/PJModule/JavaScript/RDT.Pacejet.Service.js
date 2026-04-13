@@ -1949,7 +1949,11 @@ define("RDT.Pacejet.Service", [
         // Default to Pacejet's customer-facing freight so the UI matches the
         // native NetSuite shipmethod amounts. Only swap to marked-up cost when
         // markup is explicitly enabled for this environment.
-        if (!markupEnabled && rate.customerFreight && rate.customerFreight > 0) {
+        if (
+          !markupEnabled &&
+          rate.customerFreight &&
+          rate.customerFreight > 0
+        ) {
           rate.cost = +Number(rate.customerFreight).toFixed(2);
         } else if (markupEnabled && rate.finalCost && rate.finalCost > 0) {
           rate.cost = rate.finalCost;

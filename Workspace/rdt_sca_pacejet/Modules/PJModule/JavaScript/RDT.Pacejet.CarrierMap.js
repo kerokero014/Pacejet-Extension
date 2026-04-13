@@ -13,6 +13,6 @@ define("RDT.Pacejet.CarrierMap", [], function () {
     ESTES_LTL: "1335",
 
     // Will Call
-    WILL_CALL: "1349",
+    WILL_CALL: "1349"
   };
 });

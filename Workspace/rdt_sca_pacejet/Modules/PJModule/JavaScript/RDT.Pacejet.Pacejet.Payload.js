@@ -95,7 +95,9 @@ define("RDT.Pacejet.Pacejet.Payload", ["RDT.Pacejet.Config"], function (
 
   function buildOptions(opts) {
     var options = {};
-    var services = buildShipmentServicesFromAccessorials(opts && opts.accessorials);
+    var services = buildShipmentServicesFromAccessorials(
+      opts && opts.accessorials
+    );
     var enforcedServices = [];
 
     if (hasHazmatParcelItems(opts && opts.items)) {
