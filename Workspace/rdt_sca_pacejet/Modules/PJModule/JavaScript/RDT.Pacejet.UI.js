@@ -575,16 +575,11 @@ define("RDT.Pacejet.UI", [
     var isLoading = !!opts.loading;
     var selectedShipCode =
       state && state.selection ? String(state.selection.shipCode || "") : "";
-
+    var continueEnabled = !!opts.continueEnabled;
     var $selects = $(
       ".order-wizard-shipmethod-module-option-select[data-action='select-delivery-option'], " +
         ".order-wizard-shipmethod-module-option-select"
     );
-    var nativeShipmethodValue = String($selects.first().val() || "").trim();
-
-    var continueEnabled =
-      !!nativeShipmethodValue &&
-      !(state && state.flags && state.flags.selectionApplying);
 
     if (!deferClear) {
       clear($host);

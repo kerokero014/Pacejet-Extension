@@ -571,14 +571,38 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     return getShipmethodId(order.get("shipmethod"));
   }
 
-  function hasConfirmedNativeShipmethod(order) {
-    return !!getConfirmedOrderShipmethod(order);
+  function hasSyncedPacejetSelection(order) {
+    var selectedRate = PacejetState.getSelectedRate();
+    var confirmedShipmethod = getConfirmedOrderShipmethod(order);
+    var selectedShipmethod = selectedRate
+      ? getShipmethodId(selectedRate.shipmethod)
+      : "";
+
+    return !!(
+      selectedShipmethod &&
+      confirmedShipmethod &&
+      selectedShipmethod === confirmedShipmethod
+    );
+  }
+
+  function shouldEnableContinue(order) {
+    if (state.flags.selectionApplying) {
+      return false;
+    }
+
+    if (isReviewRoute() || isConfirmationRoute()) {
+      return hasSyncedPacejetSelection(order);
+    }
+
+    if (state.flags.ratesVisible || state.flags.ratesFetched) {
+      return hasSyncedPacejetSelection(order);
+    }
+
+    return false;
   }
 
   function syncContinueStateFromOrder(order) {
-    PacejetUI.setContinueButtonState(
-      hasConfirmedNativeShipmethod(order) && !state.flags.selectionApplying
-    );
+    PacejetUI.setContinueButtonState(shouldEnableContinue(order));
   }
 
   function firstDefined() {
@@ -1164,7 +1188,8 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         {
           deferClear: softRefresh,
           showRates: false,
-          loading: false
+          loading: false,
+          continueEnabled: shouldEnableContinue(order)
         }
       );
       syncContinueStateFromOrder(order);
@@ -1173,9 +1198,7 @@ define("RDT.Pacejet.Checkout.Module.V2", [
     }
 
     state.flags.ratesLoading = true;
-    PacejetUI.setContinueButtonState(
-      !!state.selection.shipCode && !state.flags.selectionApplying
-    );
+    PacejetUI.setContinueButtonState(shouldEnableContinue(order));
 
     var hostHeight = 0;
     if (softRefresh) {
@@ -1288,12 +1311,11 @@ define("RDT.Pacejet.Checkout.Module.V2", [
             state,
             {
               showRates: false,
-              loading: false
+              loading: false,
+              continueEnabled: shouldEnableContinue(order)
             }
           );
-          PacejetUI.setContinueButtonState(
-            !!state.selection.shipCode && !state.flags.selectionApplying
-          );
+          PacejetUI.setContinueButtonState(shouldEnableContinue(order));
         }
         return;
       }

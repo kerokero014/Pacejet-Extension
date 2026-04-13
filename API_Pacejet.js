@@ -35,6 +35,10 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     return safeJsonParse(readParam("custscript_rdt_pj_location_map", "{}"), {});
   }
 
+  function getVendorFacilityMap() {
+    return safeJsonParse(readParam("custscript_rdt_pj_vendor_map", "{}"), {});
+  }
+
   function mapNsLocationToPacejetFacility(nsLocationId, mapping) {
     var key = String(nsLocationId || "");
 
@@ -143,6 +147,7 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
   };
 
   var LOCATION_FACILITY_MAP = getLocationFacilityMap();
+  var VENDOR_FACILITY_MAP = getVendorFacilityMap();
 
   // ---------- type mapper (cart → record.Type) ----------
 
@@ -165,6 +170,16 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
       default:
         return record.Type.INVENTORY_ITEM;
     }
+  }
+
+  function mapVendorToPacejetFacility(vendorId, mapping) {
+    var key = String(vendorId || "");
+
+    if (mapping && mapping[key]) {
+      return String(mapping[key]);
+    }
+
+    return "";
   }
 
   // ---------- origin resolution (vendor-aware) ----------
@@ -450,6 +465,11 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
         vendorRec.getValue({ fieldId: "entityid" }) ||
         "Vendor";
 
+      var mappedFacilityCode = mapVendorToPacejetFacility(
+        vendorId,
+        VENDOR_FACILITY_MAP
+      );
+
       var origin = {
         CompanyName: companyName,
         Address1: addr.getValue({ fieldId: "addr1" }) || "",
@@ -462,6 +482,32 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
         CountryCode: addr.getValue({ fieldId: "country" }) || "US"
       };
 
+      // If vendor is mapped, make it a Pacejet facility-style origin
+      if (mappedFacilityCode) {
+        origin.LocationType = "Facility";
+        origin.LocationSite = "MAIN";
+        origin.LocationCode = mappedFacilityCode;
+      }
+
+      try {
+        log.audit({
+          title: "buildOriginFromVendor resolved",
+          details: {
+            vendorId: key,
+            mappedFacilityCode: mappedFacilityCode || "",
+            companyName: origin.CompanyName,
+            address1: origin.Address1,
+            city: origin.City,
+            state: origin.StateOrProvinceCode,
+            postalCode: origin.PostalCode,
+            countryCode: origin.CountryCode,
+            locationType: origin.LocationType || "",
+            locationSite: origin.LocationSite || "",
+            locationCode: origin.LocationCode || ""
+          }
+        });
+      } catch (_vendorAuditErr) {}
+
       VENDOR_ORIGIN_CACHE[key] = origin;
       return origin;
     } catch (e) {
@@ -471,6 +517,7 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
           details: e
         });
       } catch (_e2) {}
+
       VENDOR_ORIGIN_CACHE[key] = DEFAULT_ORIGIN;
       return DEFAULT_ORIGIN;
     }
@@ -1100,6 +1147,124 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     return ITEM_AVAILABILITY_CACHE[cacheKey];
   }
 
+  function getDropShipDataFromItemRecord(cartItem) {
+    if (!cartItem || !cartItem.internalid) {
+      return null;
+    }
+
+    var recType = mapItemType(cartItem.type || cartItem.itemtype);
+    var cacheKey = [
+      "dropship",
+      String(cartItem.internalid),
+      String(recType)
+    ].join("|");
+
+    if (ITEM_AVAILABILITY_CACHE.hasOwnProperty(cacheKey)) {
+      return ITEM_AVAILABILITY_CACHE[cacheKey];
+    }
+
+    var itemRec = loadItemRecordSafe(cartItem.internalid, recType);
+    if (!itemRec) {
+      ITEM_AVAILABILITY_CACHE[cacheKey] = null;
+      return null;
+    }
+
+    var flag = itemRec.getValue({ fieldId: "isdropshipitem" });
+    var isDrop =
+      flag === true || flag === "T" || String(flag).toLowerCase() === "true";
+
+    var vendorId = getPreferredVendorFromItem(itemRec) || null;
+    var parentId = itemRec.getValue({ fieldId: "parent" }) || null;
+
+    // Optional fallback: if child is not marked dropship, check parent too
+    if (!isDrop && parentId) {
+      try {
+        var parentRec = record.load({
+          type: recType,
+          id: parentId,
+          isDynamic: false
+        });
+
+        var parentFlag = parentRec.getValue({ fieldId: "isdropshipitem" });
+        var parentIsDrop =
+          parentFlag === true ||
+          parentFlag === "T" ||
+          String(parentFlag).toLowerCase() === "true";
+
+        if (parentIsDrop) {
+          isDrop = true;
+          vendorId = getPreferredVendorFromItem(parentRec) || vendorId || null;
+        }
+      } catch (eParent) {
+        try {
+          log.error({
+            title:
+              "getDropShipDataFromItemRecord parent load error (parent " +
+              parentId +
+              ")",
+            details: eParent
+          });
+        } catch (_eParentLog) {}
+      }
+    }
+
+    ITEM_AVAILABILITY_CACHE[cacheKey] = {
+      isDropShip: isDrop,
+      preferredVendorId: vendorId
+    };
+
+    return ITEM_AVAILABILITY_CACHE[cacheKey];
+  }
+
+  function enrichCartItemsForDropShipPlanning(body) {
+    var items = getCartItems(body);
+    var summary = {
+      itemsCount: items.length,
+      detectedDropShipItems: 0,
+      enrichedItems: 0,
+      missingItems: 0
+    };
+
+    items.forEach(function (item) {
+      if (!item || !item.internalid) {
+        summary.missingItems += 1;
+        return;
+      }
+
+      // Respect explicit payload flags first
+      if (
+        item.isDropShip === true ||
+        item.dropShip === true ||
+        item.isDropShip === "T" ||
+        item.dropShip === "T"
+      ) {
+        item.isDropShip = true;
+        summary.detectedDropShipItems += 1;
+        return;
+      }
+
+      var derived = getDropShipDataFromItemRecord(item);
+      if (!derived) {
+        summary.missingItems += 1;
+        return;
+      }
+
+      item.isDropShip = !!derived.isDropShip;
+
+      if (derived.preferredVendorId && !item.preferredVendorId) {
+        item.preferredVendorId = String(derived.preferredVendorId);
+      }
+
+      summary.enrichedItems += 1;
+
+      if (item.isDropShip) {
+        summary.detectedDropShipItems += 1;
+      }
+    });
+
+    return summary;
+  }
+
   function enrichCartItemsForOriginPlanning(body) {
     var items = getCartItems(body);
     var summary = {
@@ -1110,7 +1275,13 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     };
 
     items.forEach(function (item) {
-      if (!item || item.isDropShip === true || item.dropShip === true) {
+      if (
+        !item ||
+        item.isDropShip === true ||
+        item.dropShip === true ||
+        item.isDropShip === "T" ||
+        item.dropShip === "T"
+      ) {
         summary.missingItems += 1;
         return;
       }
@@ -1518,6 +1689,15 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
         });
       }
     } catch (_e2) {}
+
+    var dropShipSummary = enrichCartItemsForDropShipPlanning(body);
+
+    try {
+      log.audit({
+        title: "Pacejet dropship enrichment",
+        details: dropShipSummary
+      });
+    } catch (_eDropShipLog) {}
 
     var enrichmentSummary = enrichCartItemsForOriginPlanning(body);
 

@@ -14,7 +14,7 @@ define(["N/record", "N/log"], function (record, log) {
     estimatedArrivalDate: "custbody_rdt_pj_est_arrival_date",
     quoteJson: "custbody_rdt_pj_quote_json",
 
-    //Accessorials
+    // Accessorials
     callPriorTruck: "custbody_callpriortruck",
     jobsite: "custbody_jobsite",
     liftgateTruck: "custbody_liftgatetruck",
@@ -258,49 +258,6 @@ define(["N/record", "N/log"], function (record, log) {
     };
   }
 
-  function setBoolean(rec, fieldId, value) {
-    rec.setValue({
-      fieldId: fieldId,
-      value: asBoolean(value)
-    });
-  }
-
-  function maybeSet(rec, fieldId, value) {
-    if (value === "" || value == null) return;
-
-    rec.setValue({
-      fieldId: fieldId,
-      value: value
-    });
-  }
-
-  function maybeSetSelect(rec, fieldId, value, results) {
-    var textValue = asString(value).trim();
-
-    if (!textValue) {
-      return false;
-    }
-
-    try {
-      rec.setValue({
-        fieldId: fieldId,
-        value: Number(textValue)
-      });
-
-      if (results) {
-        results[fieldId] = textValue;
-      }
-
-      return true;
-    } catch (e) {
-      if (results) {
-        results[fieldId] = "FAILED: " + (e.message || String(e));
-      }
-
-      return false;
-    }
-  }
-
   function extractLocationIdFromOriginKey(originKey) {
     var value = asString(originKey).trim();
     var locMatch = value.match(/^LOC_(\d+)$/i);
@@ -308,21 +265,10 @@ define(["N/record", "N/log"], function (record, log) {
     var facilityMatch = value.match(/^FACILITY\|MAIN\|(\d+)$/i);
     var trailingIdMatch = value.match(/\|(\d+)$/);
 
-    if (locMatch) {
-      return locMatch[1];
-    }
-
-    if (mainMatch) {
-      return mainMatch[1];
-    }
-
-    if (facilityMatch) {
-      return facilityMatch[1];
-    }
-
-    if (trailingIdMatch) {
-      return trailingIdMatch[1];
-    }
+    if (locMatch) return locMatch[1];
+    if (mainMatch) return mainMatch[1];
+    if (facilityMatch) return facilityMatch[1];
+    if (trailingIdMatch) return trailingIdMatch[1];
 
     return "";
   }
@@ -380,9 +326,16 @@ define(["N/record", "N/log"], function (record, log) {
     return fallbackLocationId;
   }
 
-  function buildLocationDiagnostics(data, quoteJson, resolvedLocationId, setResult) {
+  function buildLocationDiagnostics(
+    data,
+    quoteJson,
+    resolvedLocationId,
+    setResult
+  ) {
     var parsedQuote = safeJsonParse(quoteJson || "{}", {});
-    var quoteOrigins = Array.isArray(parsedQuote.origins) ? parsedQuote.origins : [];
+    var quoteOrigins = Array.isArray(parsedQuote.origins)
+      ? parsedQuote.origins
+      : [];
 
     return {
       requestLocationId: asString(data.locationId).trim(),
@@ -444,22 +397,405 @@ define(["N/record", "N/log"], function (record, log) {
     };
   }
 
-  function trySetValue(rec, fieldId, value, results) {
+  function isRetryableSaveError(e) {
+    var msg = (e && (e.message || e.details || String(e))) || "";
+    var name = (e && e.name) || "";
+
+    return (
+      name === "RCRD_HAS_BEEN_CHANGED" ||
+      /RCRD_HAS_BEEN_CHANGED/i.test(msg) ||
+      /Record has been changed/i.test(msg) ||
+      name ===
+        "THE_SALES_ORDER_CANNOT_BE_SAVED_BECAUSE_SOMEONE_MIGHT_BE_SAVING_AN_ASSOCIATED_RECORD_RIGHT_NOW" ||
+      /someone might be saving an associated record right now/i.test(msg)
+    );
+  }
+
+  function waitMs(ms) {
+    var start = new Date().getTime();
+    while (new Date().getTime() - start < ms) {
+      // intentional short busy wait for retry backoff
+    }
+  }
+  function valuesEqual(left, right) {
+    if (left === right) {
+      return true;
+    }
+
+    var leftNum = Number(left);
+    var rightNum = Number(right);
+
+    if (isFinite(leftNum) && isFinite(rightNum)) {
+      return Math.abs(leftNum - rightNum) < 0.00001;
+    }
+
+    return (
+      String(left == null ? "" : left) === String(right == null ? "" : right)
+    );
+  }
+
+  function setValueIfChanged(rec, fieldId, value, results) {
+    var currentValue;
+
+    try {
+      currentValue = rec.getValue({ fieldId: fieldId });
+    } catch (e) {
+      if (results) {
+        results[fieldId] = "READ_FAILED: " + (e.message || String(e));
+      }
+      return false;
+    }
+
+    if (valuesEqual(currentValue, value)) {
+      if (results) {
+        results[fieldId] = "UNCHANGED";
+      }
+      return false;
+    }
+
     try {
       rec.setValue({
         fieldId: fieldId,
         value: value
       });
+
       if (results) {
-        results[fieldId] = value;
+        results[fieldId] = {
+          from: currentValue,
+          to: value
+        };
       }
+
       return true;
+    } catch (e2) {
+      if (results) {
+        results[fieldId] = "FAILED: " + (e2.message || String(e2));
+      }
+      return false;
+    }
+  }
+
+  function setBooleanIfChanged(rec, fieldId, value, results) {
+    return setValueIfChanged(rec, fieldId, asBoolean(value), results);
+  }
+
+  function setTextIfPresentAndChanged(rec, fieldId, value, results) {
+    var textValue = asString(value);
+
+    if (!textValue) {
+      if (results) {
+        results[fieldId] = "SKIPPED_EMPTY";
+      }
+      return false;
+    }
+
+    return setValueIfChanged(rec, fieldId, textValue, results);
+  }
+
+  function setSelectIfPresentAndChanged(rec, fieldId, value, results) {
+    var textValue = asString(value).trim();
+
+    if (!textValue) {
+      if (results) {
+        results[fieldId] = "SKIPPED_EMPTY";
+      }
+      return false;
+    }
+
+    try {
+      return setValueIfChanged(rec, fieldId, Number(textValue), results);
     } catch (e) {
       if (results) {
         results[fieldId] = "FAILED: " + (e.message || String(e));
       }
       return false;
     }
+  }
+
+  function applyOriginalTaxBehavior(so, requestedTotals, changeResults) {
+    var taxOverrideResults = {};
+    var calculateTaxResult = null;
+    var taxDetailsBeforeSave = null;
+
+    try {
+      setValueIfChanged(so, "taxdetailsoverride", false, changeResults);
+    } catch (_ignore) {}
+
+    if (requestedTotals) {
+      setValueIfChanged(so, "taxdetailsoverride", true, changeResults);
+
+      setValueIfChanged(
+        so,
+        "taxtotaloverride",
+        requestedTotals.tax,
+        taxOverrideResults
+      );
+
+      setValueIfChanged(
+        so,
+        "taxamountoverride",
+        requestedTotals.tax,
+        taxOverrideResults
+      );
+    }
+
+    calculateTaxResult = tryCalculateTax(so);
+    taxDetailsBeforeSave = getTaxDetailsSnapshot(so);
+
+    return {
+      taxOverrideResults: taxOverrideResults,
+      calculateTaxResult: calculateTaxResult,
+      taxDetailsBeforeSave: taxDetailsBeforeSave
+    };
+  }
+
+  function applySalesOrderChanges(so, data) {
+    var changeResults = {};
+    var amount = asNumber(data.pacejetAmount);
+    var quoteJson = asString(data.quoteJson);
+    var resolvedLocationId = resolveSalesOrderLocationId(data, quoteJson);
+
+    if (quoteJson.length > 3900) {
+      quoteJson = quoteJson.slice(0, 3900);
+    }
+
+    setValueIfChanged(
+      so,
+      "shipmethod",
+      asString(data.shipmethod).trim(),
+      changeResults
+    );
+    setValueIfChanged(so, "shippingcost", amount, changeResults);
+
+    setValueIfChanged(so, BODY_FIELDS.amount, amount, changeResults);
+    setTextIfPresentAndChanged(
+      so,
+      BODY_FIELDS.carrier,
+      data.carrier,
+      changeResults
+    );
+    setTextIfPresentAndChanged(
+      so,
+      BODY_FIELDS.service,
+      data.service,
+      changeResults
+    );
+    setTextIfPresentAndChanged(
+      so,
+      BODY_FIELDS.originKey,
+      data.originKey,
+      changeResults
+    );
+    setTextIfPresentAndChanged(
+      so,
+      BODY_FIELDS.transitDays,
+      data.transitDays,
+      changeResults
+    );
+    setTextIfPresentAndChanged(
+      so,
+      BODY_FIELDS.estimatedArrivalDate,
+      data.estimatedArrivalDate,
+      changeResults
+    );
+    setTextIfPresentAndChanged(
+      so,
+      BODY_FIELDS.quoteJson,
+      quoteJson,
+      changeResults
+    );
+
+    setBooleanIfChanged(
+      so,
+      BODY_FIELDS.callPriorTruck,
+      data.callPriorTruck,
+      changeResults
+    );
+    setBooleanIfChanged(so, BODY_FIELDS.jobsite, data.jobsite, changeResults);
+    setBooleanIfChanged(
+      so,
+      BODY_FIELDS.liftgateTruck,
+      data.liftgateTruck,
+      changeResults
+    );
+    setBooleanIfChanged(
+      so,
+      BODY_FIELDS.residential,
+      data.residential,
+      changeResults
+    );
+    setBooleanIfChanged(
+      so,
+      BODY_FIELDS.appointmentTruck,
+      data.appointmentTruck,
+      changeResults
+    );
+    setBooleanIfChanged(
+      so,
+      BODY_FIELDS.selfStorage,
+      data.selfStorage,
+      changeResults
+    );
+    setBooleanIfChanged(
+      so,
+      BODY_FIELDS.schoolDelivery,
+      data.schoolDelivery,
+      changeResults
+    );
+    setBooleanIfChanged(
+      so,
+      BODY_FIELDS.insideDelivery,
+      data.insideDelivery,
+      changeResults
+    );
+    setBooleanIfChanged(
+      so,
+      BODY_FIELDS.accessHazmatParcel,
+      data.accessHazmatParcel,
+      changeResults
+    );
+    setBooleanIfChanged(
+      so,
+      BODY_FIELDS.dangerousGoods,
+      data.dangerousGoods,
+      changeResults
+    );
+    setBooleanIfChanged(
+      so,
+      BODY_FIELDS.noneAdditionalFeesMayApply,
+      data.noneAdditionalFeesMayApply,
+      changeResults
+    );
+
+    setSelectIfPresentAndChanged(
+      so,
+      "location",
+      resolvedLocationId,
+      changeResults
+    );
+
+    return {
+      changeResults: changeResults,
+      resolvedLocationId: resolvedLocationId,
+      quoteJson: quoteJson
+    };
+  }
+
+  function saveSalesOrderWithRetry(orderId, data, requestedTotals) {
+    var maxAttempts = 5;
+    var attempt = 0;
+    var lastError = null;
+
+    while (attempt < maxAttempts) {
+      attempt += 1;
+
+      var started = new Date().getTime();
+      var taxOverrideResults = {};
+      var calculateTaxResult = null;
+      var taxDetailsBeforeSave = null;
+      var taxDetailsAfterSave = null;
+      var taxFieldSnapshot = null;
+
+      try {
+        var so = record.load({
+          type: record.Type.SALES_ORDER,
+          id: orderId,
+          isDynamic: true
+        });
+
+        log.audit("Pacejet apply attempt - loaded", {
+          orderId: orderId,
+          attempt: attempt,
+          snapshotBefore: buildSnapshot(so)
+        });
+
+        var applied = applySalesOrderChanges(so, data);
+
+        var taxApplied = applyOriginalTaxBehavior(
+          so,
+          requestedTotals,
+          applied.changeResults
+        );
+
+        taxOverrideResults = taxApplied.taxOverrideResults;
+        calculateTaxResult = taxApplied.calculateTaxResult;
+        taxDetailsBeforeSave = taxApplied.taxDetailsBeforeSave;
+
+        var savedId = so.save({
+          enableSourcing: true,
+          ignoreMandatoryFields: true
+        });
+
+        var reloaded = record.load({
+          type: record.Type.SALES_ORDER,
+          id: savedId,
+          isDynamic: false
+        });
+
+        var finalSnapshot = buildSnapshot(reloaded);
+        var responseTotals = chooseResponseTotals(
+          finalSnapshot,
+          requestedTotals,
+          asNumber(data.pacejetAmount)
+        );
+
+        taxFieldSnapshot = buildTaxFieldSnapshot(reloaded);
+        taxDetailsAfterSave = getTaxDetailsSnapshot(reloaded);
+
+        var taxDiagnostics = buildTaxDiagnostics(
+          finalSnapshot,
+          requestedTotals,
+          taxOverrideResults,
+          calculateTaxResult,
+          taxDetailsBeforeSave,
+          taxDetailsAfterSave,
+          taxFieldSnapshot
+        );
+
+        var locationDiagnostics = buildLocationDiagnostics(
+          data,
+          applied.quoteJson,
+          applied.resolvedLocationId,
+          applied.changeResults
+        );
+
+        var result = {
+          ok: true,
+          savedId: savedId,
+          attempt: attempt,
+          elapsedMs: new Date().getTime() - started,
+          resolvedLocationId: applied.resolvedLocationId,
+          locationDiagnostics: locationDiagnostics,
+          responseTotals: responseTotals,
+          snapshot: finalSnapshot,
+          taxDiagnostics: taxDiagnostics,
+          changeResults: applied.changeResults
+        };
+
+        log.audit("Pacejet apply attempt - saved", result);
+
+        return result;
+      } catch (e) {
+        lastError = e;
+
+        log.error("Pacejet apply attempt failed", {
+          orderId: orderId,
+          attempt: attempt,
+          retryable: isRetryableSaveError(e),
+          name: e && e.name,
+          message: e && (e.message || String(e)),
+          stack: e && e.stack
+        });
+
+        if (!isRetryableSaveError(e) || attempt >= maxAttempts) {
+          throw e;
+        }
+
+        waitMs(attempt * 250);
+      }
+    }
+
+    throw lastError;
   }
 
   function onRequest(context) {
@@ -494,12 +830,6 @@ define(["N/record", "N/log"], function (record, log) {
     var shipmethod = asString(data.shipmethod).trim();
     var amount = asNumber(data.pacejetAmount);
     var requestedTotals = normalizeTotals(data.totals);
-    var taxOverrideResults = {};
-    var calculateTaxResult = null;
-    var taxDetailsBeforeSave = null;
-    var taxDetailsAfterSave = null;
-    var taxFieldSnapshot = null;
-    var locationSetResults = {};
 
     if (!/^\d+$/.test(orderId)) {
       return writeJson(res, 400, {
@@ -523,146 +853,33 @@ define(["N/record", "N/log"], function (record, log) {
     }
 
     try {
-      var so = record.load({
-        type: record.Type.SALES_ORDER,
-        id: orderId,
-        isDynamic: true
-      });
-
-      log.audit("Pacejet test apply - before", buildSnapshot(so));
-
-      so.setValue({
-        fieldId: "shipmethod",
-        value: shipmethod
-      });
-
-      so.setValue({
-        fieldId: "shippingcost",
-        value: amount
-      });
-
-      maybeSet(so, BODY_FIELDS.amount, amount);
-      maybeSet(so, BODY_FIELDS.carrier, asString(data.carrier));
-      maybeSet(so, BODY_FIELDS.service, asString(data.service));
-      maybeSet(so, BODY_FIELDS.originKey, asString(data.originKey));
-      maybeSet(so, BODY_FIELDS.transitDays, asString(data.transitDays));
-      maybeSet(
-        so,
-        BODY_FIELDS.estimatedArrivalDate,
-        asString(data.estimatedArrivalDate)
-      );
-
-      setBoolean(so, BODY_FIELDS.callPriorTruck, data.callPriorTruck);
-      setBoolean(so, BODY_FIELDS.jobsite, data.jobsite);
-      setBoolean(so, BODY_FIELDS.liftgateTruck, data.liftgateTruck);
-      setBoolean(so, BODY_FIELDS.residential, data.residential);
-      setBoolean(so, BODY_FIELDS.appointmentTruck, data.appointmentTruck);
-      setBoolean(so, BODY_FIELDS.selfStorage, data.selfStorage);
-      setBoolean(so, BODY_FIELDS.schoolDelivery, data.schoolDelivery);
-      setBoolean(so, BODY_FIELDS.insideDelivery, data.insideDelivery);
-      setBoolean(so, BODY_FIELDS.accessHazmatParcel, data.accessHazmatParcel);
-      setBoolean(so, BODY_FIELDS.dangerousGoods, data.dangerousGoods);
-      setBoolean(
-        so,
-        BODY_FIELDS.noneAdditionalFeesMayApply,
-        data.noneAdditionalFeesMayApply
-      );
-
-      var quoteJson = asString(data.quoteJson);
-      var resolvedLocationId = resolveSalesOrderLocationId(data, quoteJson);
-
-      if (quoteJson.length > 3900) {
-        quoteJson = quoteJson.slice(0, 3900);
-      }
-      maybeSet(so, BODY_FIELDS.quoteJson, quoteJson);
-      maybeSetSelect(so, "location", resolvedLocationId, locationSetResults);
-
-      // Useful when tax engines need recalculation
-      try {
-        so.setValue({
-          fieldId: "taxdetailsoverride",
-          value: false
-        });
-      } catch (_ignore) {}
-
-      if (requestedTotals) {
-        trySetValue(so, "taxdetailsoverride", true, taxOverrideResults);
-        trySetValue(
-          so,
-          "taxtotaloverride",
-          requestedTotals.tax,
-          taxOverrideResults
-        );
-        trySetValue(
-          so,
-          "taxamountoverride",
-          requestedTotals.tax,
-          taxOverrideResults
-        );
-      }
-
-      calculateTaxResult = tryCalculateTax(so);
-      taxDetailsBeforeSave = getTaxDetailsSnapshot(so);
-
-      var savedId = so.save({
-        enableSourcing: true,
-        ignoreMandatoryFields: true
-      });
-
-      var reloaded = record.load({
-        type: record.Type.SALES_ORDER,
-        id: savedId,
-        isDynamic: false
-      });
-
-      var finalSnapshot = buildSnapshot(reloaded);
-      taxFieldSnapshot = buildTaxFieldSnapshot(reloaded);
-      taxDetailsAfterSave = getTaxDetailsSnapshot(reloaded);
-      var responseTotals = chooseResponseTotals(
-        finalSnapshot,
-        requestedTotals,
-        amount
-      );
-      var taxDiagnostics = buildTaxDiagnostics(
-        finalSnapshot,
-        requestedTotals,
-        taxOverrideResults,
-        calculateTaxResult,
-        taxDetailsBeforeSave,
-        taxDetailsAfterSave,
-        taxFieldSnapshot
-      );
-      var locationDiagnostics = buildLocationDiagnostics(
-        data,
-        quoteJson,
-        resolvedLocationId,
-        locationSetResults
-      );
-
-      log.audit("Pacejet test apply - after", {
-        snapshot: finalSnapshot,
-        resolvedLocationId: resolvedLocationId,
-        locationDiagnostics: locationDiagnostics,
-        responseTotals: responseTotals,
-        requestedTotals: requestedTotals,
-        taxOverrideResults: taxOverrideResults,
-        taxDiagnostics: taxDiagnostics
-      });
+      var result = saveSalesOrderWithRetry(orderId, data, requestedTotals);
 
       return writeJson(res, 200, {
         ok: true,
-        orderId: savedId,
-        resolvedLocationId: resolvedLocationId,
-        locationDiagnostics: locationDiagnostics,
-        totals: responseTotals,
-        snapshot: finalSnapshot,
-        taxDiagnostics: taxDiagnostics
+        orderId: result.savedId,
+        resolvedLocationId: result.resolvedLocationId,
+        locationDiagnostics: result.locationDiagnostics,
+        totals: result.responseTotals,
+        snapshot: result.snapshot,
+        taxDiagnostics: result.taxDiagnostics,
+        saveAttempt: result.attempt,
+        elapsedMs: result.elapsedMs,
+        changeResults: result.changeResults
       });
     } catch (e) {
-      log.error("Pacejet test apply failed", e);
+      log.error("Pacejet test apply failed", {
+        name: e && e.name,
+        message: e && (e.message || String(e)),
+        stack: e && e.stack,
+        orderId: orderId
+      });
+
       return writeJson(res, 500, {
         ok: false,
-        error: e.message || String(e)
+        error: e.message || String(e),
+        errorName: e.name || "",
+        orderId: orderId
       });
     }
   }
