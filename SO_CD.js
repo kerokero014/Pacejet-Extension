@@ -1,7 +1,7 @@
 /**
  * @NApiVersion 2.1
  * @NScriptType Suitelet
- * @description Always create a NEW Customer Deposit from persisted Sales Order total (tax included)
+ * @description Create a Customer Deposit from the persisted Sales Order card portion; skip deposit for pure terms orders
  */
 define(["N/record", "N/log"], (record, log) => {
   function num(v) {
@@ -11,6 +11,10 @@ define(["N/record", "N/log"], (record, log) => {
 
   function round2(n) {
     return Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
+  }
+
+  function asBool(v) {
+    return v === true || v === "T" || v === "true" || v === 1 || v === "1";
   }
 
   function readSalesOrderAmounts(soRec) {
@@ -57,20 +61,16 @@ define(["N/record", "N/log"], (record, log) => {
         computedTotal: amounts.computedTotal
       });
 
-      // If total already matches computed total, we're good
       if (Math.abs(amounts.total - amounts.computedTotal) < 0.01) {
         return {
           soRec: soRec,
-          salesOrderTotal: amounts.total,
           amounts: amounts
         };
       }
 
-      // If computed total is larger and clearly more complete, use it
       if (amounts.computedTotal > amounts.total + 0.01) {
         return {
           soRec: soRec,
-          salesOrderTotal: amounts.computedTotal,
           amounts: amounts
         };
       }
@@ -78,11 +78,62 @@ define(["N/record", "N/log"], (record, log) => {
 
     return {
       soRec: last.soRec,
+      amounts: last.amounts,
       salesOrderTotal:
-        last.amounts.computedTotal > last.amounts.total + 0.01
-          ? last.amounts.computedTotal
-          : last.amounts.total,
-      amounts: last.amounts
+        Math.abs(amounts.total - amounts.computedTotal) < 0.01
+          ? amounts.total
+          : amounts.computedTotal > amounts.total + 0.01
+            ? amounts.computedTotal
+            : amounts.total
+    };
+  }
+
+  function readSplitAmounts(soRec) {
+    var useTerms = asBool(soRec.getValue({ fieldId: "custbody_sc_use_terms" }));
+
+    var cardPortion = round2(
+      num(soRec.getValue({ fieldId: "custbody_card_portion" }))
+    );
+
+    var termsPortion = round2(
+      num(soRec.getValue({ fieldId: "custbody_terms_portion" }))
+    );
+
+    return {
+      useTerms: useTerms,
+      cardPortion: Math.max(0, cardPortion),
+      termsPortion: Math.max(0, termsPortion)
+    };
+  }
+
+  function resolveDepositAmount(soRec, amounts) {
+    var split = readSplitAmounts(soRec);
+    var soTotal = round2(num(amounts && amounts.total));
+
+    // Card-only
+    if (!split.useTerms) {
+      return {
+        mode: "card",
+        depositAmount: soTotal,
+        split: split
+      };
+    }
+
+    // Terms-only or Hybrid
+    var cardAmount = round2(Math.max(0, Math.min(split.cardPortion, soTotal)));
+
+    if (cardAmount <= 0) {
+      return {
+        mode: "terms",
+        depositAmount: 0,
+        split: split
+      };
+    }
+
+    return {
+      mode: "hybrid",
+      depositAmount: cardAmount,
+      split: split
     };
   }
 
@@ -241,83 +292,32 @@ define(["N/record", "N/log"], (record, log) => {
     safeSet("ccnumber", "");
   }
 
-  // // ---------- optional: align SO helper fields after deposit succeeds ----------
-  // function trySyncSoSplitFields(soId, salesOrderTotal) {
-  //   try {
-  //     record.submitFields({
-  //       type: record.Type.SALES_ORDER,
-  //       id: soId,
-  //       values: {
-  //         custbody_card_portion: salesOrderTotal,
-  //         custbody_terms_portion: 0,
-  //         custbody_sc_use_terms: false
-  //       },
-  //       options: {
-  //         enableSourcing: false,
-  //         ignoreMandatoryFields: true
-  //       }
-  //     });
-
-  //     log.debug("SO split fields synced", {
-  //       soId: soId,
-  //       custbody_card_portion: salesOrderTotal,
-  //       custbody_terms_portion: 0,
-  //       custbody_sc_use_terms: false
-  //     });
-  //   } catch (e) {
-  //     log.error("SO split field sync failed", e);
-  //   }
-  // }
-
-  function waitForFinalTotal(soId) {
-    for (var i = 0; i < 3; i++) {
-      var soRec = record.load({
-        type: record.Type.SALES_ORDER,
-        id: soId,
-        isDynamic: false
-      });
-
-      var total = num(soRec.getValue({ fieldId: "total" }));
-      var shipping = num(soRec.getValue({ fieldId: "shippingcost" }));
-
-      log.debug("SO readiness check", {
-        attempt: i + 1,
-        total: total,
-        shipping: shipping
-      });
-
-      // if shipping is present, SO is ready
-      if (shipping > 0) {
-        return soRec;
-      }
-    }
-
-    // fallback anyway
-    return soRec;
-  }
-
   function createDepositForOrder(soId) {
     if (!soId) {
       throw new Error("Missing soId parameter");
     }
 
-    var soRec = record.load({
-      type: record.Type.SALES_ORDER,
-      id: soId,
-      isDynamic: false
-    });
+    var soInfo = getBestSalesOrderTotal(soId);
+    var soRec = soInfo.soRec;
+    var amounts = soInfo.amounts;
 
     var customerId = soRec.getValue({ fieldId: "entity" });
     var currencyId = soRec.getValue({ fieldId: "currency" });
     var locationId = soRec.getValue({ fieldId: "location" }) || null;
-    var salesOrderTotal = num(soRec.getValue({ fieldId: "total" }));
-    var subtotal = num(soRec.getValue({ fieldId: "subtotal" }));
-    var shipping = num(soRec.getValue({ fieldId: "shippingcost" }));
-    var tax = num(soRec.getValue({ fieldId: "taxtotal" }));
+
+    var subtotal = amounts.subtotal;
+    var shipping = amounts.shipping;
+    var tax = amounts.tax;
+    var salesOrderTotal = soInfo.salesOrderTotal;
+
+    var depositDecision = resolveDepositAmount(soRec, amounts);
+    var depositAmount = depositDecision.depositAmount;
+    var paymentMode = depositDecision.mode;
+    var split = depositDecision.split;
 
     var cardMeta = extractCardMetaFromSO(soRec);
 
-    log.debug("Creating NEW Customer Deposit from persisted SO total", {
+    log.debug("Creating NEW Customer Deposit from SO payment split", {
       soId: soId,
       customerId: customerId,
       currencyId: currencyId,
@@ -325,11 +325,40 @@ define(["N/record", "N/log"], (record, log) => {
       subtotal: subtotal,
       shipping: shipping,
       tax: tax,
-      salesOrderTotal: salesOrderTotal
+      salesOrderTotal: salesOrderTotal,
+      paymentMode: paymentMode,
+      depositAmount: depositAmount,
+      split: split
     });
 
     if (!customerId) {
       throw new Error("No customer on SO; cannot create Customer Deposit");
+    }
+
+    if (depositAmount <= 0) {
+      log.debug("Skipping Customer Deposit creation: no card portion", {
+        soId: soId,
+        paymentMode: paymentMode,
+        split: split,
+        salesOrderAmounts: amounts
+      });
+
+      return {
+        action: "skipped",
+        reason: "No card portion on Sales Order",
+        soId: soId,
+        depositAmount: 0,
+        salesOrderTotal: salesOrderTotal,
+        salesOrderAmounts: {
+          subtotal: subtotal,
+          shipping: shipping,
+          tax: tax,
+          total: salesOrderTotal
+        },
+        paymentMode: paymentMode,
+        split: split,
+        cardMeta: cardMeta
+      };
     }
 
     var dep = record.create({
@@ -371,7 +400,7 @@ define(["N/record", "N/log"], (record, log) => {
 
     dep.setValue({
       fieldId: "payment",
-      value: salesOrderTotal
+      value: depositAmount
     });
 
     dep.setValue({
@@ -403,7 +432,7 @@ define(["N/record", "N/log"], (record, log) => {
       action: "created",
       soId: soId,
       depositId: depId,
-      depositAmount: salesOrderTotal,
+      depositAmount: depositAmount,
       salesOrderTotal: salesOrderTotal,
       salesOrderAmounts: {
         subtotal: subtotal,
@@ -411,6 +440,8 @@ define(["N/record", "N/log"], (record, log) => {
         tax: tax,
         total: salesOrderTotal
       },
+      paymentMode: paymentMode,
+      split: split,
       cardMeta: cardMeta
     };
   }
