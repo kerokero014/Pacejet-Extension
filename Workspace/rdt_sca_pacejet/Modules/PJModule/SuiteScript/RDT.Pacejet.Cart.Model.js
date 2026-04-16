@@ -122,9 +122,10 @@ define("RDT.Pacejet.Cart.Model", [
         totals: persistenceResult ? persistenceResult.totals || null : null,
         fields: persistenceResult ? persistenceResult.fields : {}
       },
-      summary: persistenceResult && persistenceResult.totals
-        ? persistenceResult.totals
-        : CartHelper.normalizeSummary(updatedOrder)
+      summary:
+        persistenceResult && persistenceResult.totals
+          ? persistenceResult.totals
+          : CartHelper.normalizeSummary(updatedOrder)
     };
   }
 

@@ -119,7 +119,7 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
         ? raw.customfields
         : Array.isArray(raw.customFields)
           ? raw.customFields
-          : [],
+          : []
     };
   }
 
@@ -192,7 +192,7 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
       raw && raw.bodyFields,
       raw && raw.fields,
       raw && raw.itemoptions_detail && raw.itemoptions_detail.fields,
-      raw && raw.itemoptions && raw.itemoptions.fields,
+      raw && raw.itemoptions && raw.itemoptions.fields
     ];
     var list;
     var i;
@@ -343,7 +343,7 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
         "shippingcost",
         "shippingCost",
         "estimatedshipping",
-        "handlingcost",
+        "handlingcost"
       ]),
       0
     );
@@ -353,7 +353,7 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
         "taxtotal",
         "taxTotal",
         "taxamount",
-        "taxAmount",
+        "taxAmount"
       ]),
       0
     );
@@ -362,7 +362,7 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
         "total",
         "order_total",
         "totalamount",
-        "totalAmount",
+        "totalAmount"
       ]),
       subtotal + shipping + tax
     );
@@ -405,6 +405,6 @@ define("RDT.Pacejet.Cart.Helper", [], function () {
     normalizeSummary: normalizeSummary,
     PERSISTED_FIELD_IDS: PERSISTED_FIELD_IDS,
     toScalarValue: toScalarValue,
-    validatePayload: validatePayload,
+    validatePayload: validatePayload
   };
 });
