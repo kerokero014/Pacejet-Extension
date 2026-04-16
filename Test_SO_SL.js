@@ -2,7 +2,12 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  */
-define(["N/record", "N/log"], function (record, log) {
+define(["N/record", "N/log", "N/runtime", "N/https"], function (
+  record,
+  log,
+  runtime,
+  https
+) {
   "use strict";
 
   var BODY_FIELDS = {
@@ -27,6 +32,23 @@ define(["N/record", "N/log"], function (record, log) {
     dangerousGoods: "custbody_dangerous_goods",
     noneAdditionalFeesMayApply: "custbody_none_additional_fees_may_app"
   };
+  var ACCESSORIAL_SERVICE_CODES = {
+    callPriorTruck: "CALL_PRIOR",
+    jobsite: "JOB_SITE",
+    liftgateTruck: "LIFT_GATE",
+    residential: "RESIDENTIAL",
+    appointmentTruck: "APPOINTMENT",
+    selfStorage: "SELF_STORAGE",
+    schoolDelivery: "SCHOOL",
+    insideDelivery: "INSIDE_DELIVERY",
+    accessHazmatParcel: "HAZMAT_PARCEL",
+    dangerousGoods: "DANGEROUS_GOODS"
+  };
+  var DEFAULT_PACEJET_API_URL = "https://shipapi.pacejet.cc";
+  var DEFAULT_PACEJET_LOCATION = "Curecrete";
+  var DEFAULT_PACEJET_API_KEY = "66f5540a-9a81-ebea-c232-da7c4c18d229";
+  var LOCATION_ORIGIN_CACHE = {};
+  var ITEM_DETAIL_CACHE = {};
 
   // ─── DIAGNOSTIC: tracks what modified the record between load and save ───
   var diagnosticLog = [];
@@ -116,6 +138,757 @@ define(["N/record", "N/log"], function (record, log) {
       };
     }
     return snapshotTotals;
+  }
+
+  function readParam(id, dflt) {
+    try {
+      var value = runtime.getCurrentScript().getParameter({ name: id });
+      return value !== null && value !== undefined && value !== ""
+        ? value
+        : dflt;
+    } catch (_e) {
+      return dflt;
+    }
+  }
+
+  function safeJsonStringify(value) {
+    try {
+      return JSON.stringify(value);
+    } catch (_e) {
+      return "";
+    }
+  }
+
+  function getWorkbenchConfig() {
+    return {
+      enabled: asBoolean(readParam("custscript_rdt_pj_enable_ship_export", "T")),
+      apiUrl: String(
+        readParam("custscript_rdt_pj_api_url", DEFAULT_PACEJET_API_URL)
+      ).replace(/\/+$/, ""),
+      apiVersion: String(readParam("custscript_rdt_pj_ship_api_version", "3.5")),
+      location: String(
+        readParam("custscript_rdt_pj_location", DEFAULT_PACEJET_LOCATION)
+      ),
+      apiKey: String(
+        readParam("custscript_rdt_pj_api_key", DEFAULT_PACEJET_API_KEY)
+      ),
+      locationMap: safeJsonParse(
+        readParam("custscript_rdt_pj_location_map", "{}"),
+        {}
+      )
+    };
+  }
+
+  function mapNsLocationToPacejetFacility(nsLocationId, mapping) {
+    var key = asString(nsLocationId).trim();
+    if (mapping && mapping[key]) {
+      return String(mapping[key]);
+    }
+    return key;
+  }
+
+  function isTransient(code) {
+    return (
+      code === 429 ||
+      code === 500 ||
+      code === 502 ||
+      code === 503 ||
+      code === 504
+    );
+  }
+
+  function postWithRetry(options, attempts) {
+    var lastError = null;
+    var attempt = 0;
+
+    while (attempt < attempts) {
+      attempt += 1;
+      try {
+        var response = https.post(options);
+        if (response.code >= 200 && response.code < 300) {
+          return response;
+        }
+        if (!isTransient(response.code)) {
+          throw new Error("HTTP " + response.code + ": " + (response.body || ""));
+        }
+      } catch (e) {
+        lastError = e;
+      }
+
+      try {
+        runtime.sleep(attempt * 250);
+      } catch (_sleepErr) {}
+    }
+
+    throw lastError || new Error("Pacejet shipment export failed");
+  }
+
+  function getRecordTextSafe(rec, fieldId) {
+    try {
+      return rec.getText({ fieldId: fieldId });
+    } catch (_e) {
+      return "";
+    }
+  }
+
+  function getSubrecordValueSafe(subrecord, fieldId) {
+    try {
+      return subrecord.getValue({ fieldId: fieldId });
+    } catch (_e) {
+      return "";
+    }
+  }
+
+  function getSublistTextSafe(rec, sublistId, fieldId, line) {
+    try {
+      return rec.getSublistText({
+        sublistId: sublistId,
+        fieldId: fieldId,
+        line: line
+      });
+    } catch (_e) {
+      return "";
+    }
+  }
+
+  function sanitizeIdPart(value) {
+    return asString(value)
+      .replace(/[^A-Za-z0-9_-]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 60);
+  }
+
+  function buildDestinationFromSalesOrder(so) {
+    var destination = {
+      CompanyName: asString(so.getValue({ fieldId: "shipcompany" })) || "",
+      Address1: "",
+      Address2: "",
+      City: "",
+      StateOrProvinceCode: "",
+      PostalCode: "",
+      CountryCode: "",
+      ContactName: "",
+      Email: asString(so.getValue({ fieldId: "email" })) || "",
+      Phone: ""
+    };
+
+    try {
+      var shipAddress = so.getSubrecord({ fieldId: "shippingaddress" });
+      destination.Address1 = asString(getSubrecordValueSafe(shipAddress, "addr1"));
+      destination.Address2 = asString(getSubrecordValueSafe(shipAddress, "addr2"));
+      destination.City = asString(getSubrecordValueSafe(shipAddress, "city"));
+      destination.StateOrProvinceCode = asString(
+        getSubrecordValueSafe(shipAddress, "state") ||
+          getSubrecordValueSafe(shipAddress, "dropdownstate")
+      );
+      destination.PostalCode = asString(
+        getSubrecordValueSafe(shipAddress, "zip") ||
+          getSubrecordValueSafe(shipAddress, "postalcode")
+      );
+      destination.CountryCode = asString(
+        getSubrecordValueSafe(shipAddress, "country")
+      );
+      destination.Phone = asString(
+        getSubrecordValueSafe(shipAddress, "addrphone")
+      );
+      destination.ContactName = asString(
+        getSubrecordValueSafe(shipAddress, "addressee") ||
+          getSubrecordValueSafe(shipAddress, "attention")
+      );
+      if (!destination.CompanyName) {
+        destination.CompanyName = destination.ContactName;
+      }
+    } catch (_e) {}
+
+    if (!destination.ContactName) {
+      destination.ContactName =
+        asString(so.getValue({ fieldId: "shipattention" })) ||
+        destination.CompanyName ||
+        "Ship To";
+    }
+
+    if (!destination.CompanyName) {
+      destination.CompanyName = destination.ContactName || "Ship To";
+    }
+
+    return destination;
+  }
+
+  function buildOriginFromLocation(locationId, config) {
+    var key = asString(locationId).trim();
+
+    if (!key) {
+      return null;
+    }
+
+    if (LOCATION_ORIGIN_CACHE[key]) {
+      return Object.assign({}, LOCATION_ORIGIN_CACHE[key]);
+    }
+
+    var facilityCode = mapNsLocationToPacejetFacility(key, config.locationMap);
+    var origin = {
+      LocationType: "Facility",
+      LocationSite: "MAIN",
+      LocationCode: facilityCode
+    };
+
+    var locationRec = record.load({
+      type: record.Type.LOCATION,
+      id: key,
+      isDynamic: false
+    });
+    var mainAddress = null;
+
+    try {
+      mainAddress = locationRec.getSubrecord({ fieldId: "mainaddress" });
+    } catch (_addressErr) {
+      mainAddress = null;
+    }
+
+    origin.CompanyName = asString(locationRec.getValue({ fieldId: "name" }));
+
+    if (mainAddress) {
+      origin.Address1 = asString(getSubrecordValueSafe(mainAddress, "addr1"));
+      origin.Address2 = asString(getSubrecordValueSafe(mainAddress, "addr2"));
+      origin.City = asString(getSubrecordValueSafe(mainAddress, "city"));
+      origin.StateOrProvinceCode = asString(
+        getSubrecordValueSafe(mainAddress, "state") ||
+          getSubrecordValueSafe(mainAddress, "dropdownstate")
+      );
+      origin.PostalCode = asString(getSubrecordValueSafe(mainAddress, "zip"));
+      origin.CountryCode = asString(getSubrecordValueSafe(mainAddress, "country"));
+      origin.Phone = asString(getSubrecordValueSafe(mainAddress, "addrphone"));
+    }
+
+    LOCATION_ORIGIN_CACHE[key] = origin;
+    return Object.assign({}, origin);
+  }
+
+  function normalizeOriginFromQuote(origin, fallbackLocationId, config) {
+    var quoteOrigin = origin && origin.Origin ? origin.Origin : {};
+    var locationCode = asString(
+      quoteOrigin.LocationCode || fallbackLocationId
+    ).trim();
+    var normalized = buildOriginFromLocation(locationCode, config) || {};
+
+    Object.keys(quoteOrigin || {}).forEach(function (key) {
+      if (
+        quoteOrigin[key] !== null &&
+        quoteOrigin[key] !== undefined &&
+        quoteOrigin[key] !== ""
+      ) {
+        normalized[key] = quoteOrigin[key];
+      }
+    });
+
+    if (!normalized.LocationCode && locationCode) {
+      normalized.LocationCode = mapNsLocationToPacejetFacility(
+        locationCode,
+        config.locationMap
+      );
+    }
+
+    return normalized;
+  }
+
+  function buildShipmentServicesCodesFromSalesOrder(so) {
+    var codes = [];
+
+    Object.keys(ACCESSORIAL_SERVICE_CODES).forEach(function (key) {
+      var fieldId = BODY_FIELDS[key];
+      if (fieldId && asBoolean(so.getValue({ fieldId: fieldId }))) {
+        codes.push({ Code: ACCESSORIAL_SERVICE_CODES[key] });
+      }
+    });
+
+    return codes;
+  }
+
+  function mapItemType(code) {
+    switch (String(code || "").toLowerCase()) {
+      case "invtpart":
+      case "inventoryitem":
+        return record.Type.INVENTORY_ITEM;
+      case "noninvtpart":
+      case "noninventoryitem":
+        return record.Type.NON_INVENTORY_ITEM;
+      case "kit":
+      case "kititem":
+        return record.Type.KIT_ITEM;
+      case "assembly":
+      case "assemblyitem":
+        return record.Type.ASSEMBLY_ITEM;
+      default:
+        return record.Type.INVENTORY_ITEM;
+    }
+  }
+
+  function loadItemExportDetails(itemId, itemType) {
+    var key = String(itemType || "") + ":" + String(itemId || "");
+    if (ITEM_DETAIL_CACHE[key]) {
+      return ITEM_DETAIL_CACHE[key];
+    }
+
+    var details = {
+      sku: String(itemId || ""),
+      length: 0,
+      width: 0,
+      height: 0,
+      weight: 0
+    };
+
+    try {
+      var itemRec = record.load({
+        type: mapItemType(itemType),
+        id: itemId,
+        isDynamic: false
+      });
+
+      details.sku =
+        asString(itemRec.getValue({ fieldId: "itemid" })) || details.sku;
+      details.length = asNumber(
+        itemRec.getValue({ fieldId: "custitem_pacejet_item_length" })
+      );
+      details.width = asNumber(
+        itemRec.getValue({ fieldId: "custitem_pacejet_item_width" })
+      );
+      details.height = asNumber(
+        itemRec.getValue({ fieldId: "custitem_pacejet_item_height" })
+      );
+      details.weight = asNumber(itemRec.getValue({ fieldId: "weight" }));
+    } catch (e) {
+      log.error("Workbench item detail load failed", {
+        itemId: itemId,
+        itemType: itemType,
+        message: e.message || String(e)
+      });
+    }
+
+    ITEM_DETAIL_CACHE[key] = details;
+    return details;
+  }
+
+  function addDimensions(target, length, width, height) {
+    if (length > 0 && width > 0 && height > 0) {
+      target.Dimensions = {
+        Length: String(length),
+        Width: String(width),
+        Height: String(height),
+        Units: "IN"
+      };
+    }
+  }
+
+  function getPositiveLineNumber(so, line, fieldIds) {
+    var i;
+    var value;
+
+    for (i = 0; i < fieldIds.length; i += 1) {
+      value = asNumber(
+        getSublistValueSafe(so, "item", fieldIds[i], line)
+      );
+      if (value > 0) {
+        return value;
+      }
+    }
+
+    return 0;
+  }
+
+  function buildPackageDetailsFromSalesOrder(so) {
+    var packages = [];
+    var skipped = [];
+    var count = Number(so.getLineCount({ sublistId: "item" }) || 0);
+    var line;
+
+    for (line = 0; line < count; line += 1) {
+      var itemId = so.getSublistValue({
+        sublistId: "item",
+        fieldId: "item",
+        line: line
+      });
+      var quantity = asNumber(
+        so.getSublistValue({
+          sublistId: "item",
+          fieldId: "quantity",
+          line: line
+        })
+      );
+
+      if (!itemId || quantity <= 0) {
+        continue;
+      }
+
+      var itemType =
+        so.getSublistValue({
+          sublistId: "item",
+          fieldId: "itemtype",
+          line: line
+        }) || "";
+      var lineDescription =
+        asString(
+          so.getSublistValue({
+            sublistId: "item",
+            fieldId: "description",
+            line: line
+          })
+        ) ||
+        asString(getSublistTextSafe(so, "item", "item", line)) ||
+        "Item " + String(itemId);
+      var rate = asNumber(
+        so.getSublistValue({
+          sublistId: "item",
+          fieldId: "rate",
+          line: line
+        })
+      );
+      var details = loadItemExportDetails(itemId, itemType);
+      var unitWeight =
+        getPositiveLineNumber(so, line, [
+          "custcol_item_weight",
+          "custcol_weight",
+          "itemweight",
+          "weight"
+        ]) || details.weight;
+      var packageWeight = unitWeight > 0 ? unitWeight * quantity : 0;
+      var hasDimensions =
+        details.length > 0 && details.width > 0 && details.height > 0;
+      var hasWeight = packageWeight > 0;
+
+      if (!hasDimensions && !hasWeight) {
+        skipped.push({
+          line: line,
+          itemId: itemId,
+          reason: "Missing package dimensions and weight"
+        });
+        continue;
+      }
+
+      var packageDetail = {
+        PackageNumber: String(packages.length + 1),
+        ProductDetailsList: [
+          {
+            Number: details.sku || String(itemId),
+            Description: lineDescription,
+            ExternalID: String(itemId),
+            AutoPack: "true",
+            Quantity: {
+              Units: "EA",
+              Value: String(quantity)
+            }
+          }
+        ]
+      };
+
+      if (hasWeight) {
+        packageDetail.Weight = String(packageWeight);
+        packageDetail.ProductDetailsList[0].Weight = String(unitWeight);
+      }
+
+      if (rate > 0) {
+        packageDetail.ProductDetailsList[0].Price = {
+          Currency: "USD",
+          Amount: rate
+        };
+      }
+
+      addDimensions(
+        packageDetail,
+        details.length,
+        details.width,
+        details.height
+      );
+      addDimensions(
+        packageDetail.ProductDetailsList[0],
+        details.length,
+        details.width,
+        details.height
+      );
+
+      packages.push(packageDetail);
+    }
+
+    return {
+      packages: packages,
+      skippedLines: skipped
+    };
+  }
+
+  function getSelectedOriginExports(so, quoteJson, resolvedLocationId, config) {
+    var parsedQuote = safeJsonParse(quoteJson || "{}", {});
+    var quoteOrigins = Array.isArray(parsedQuote.origins) ? parsedQuote.origins : [];
+    var activeOrigins = quoteOrigins.filter(function (origin) {
+      return !!origin;
+    });
+    var uniqueOriginKeys = {};
+    var normalizedOrigins = [];
+    var salesOrderLocationId = asString(
+      resolvedLocationId || so.getValue({ fieldId: "location" })
+    ).trim();
+
+    if (!salesOrderLocationId) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: "Sales Order location is required for Workbench export"
+      };
+    }
+
+    if (!activeOrigins.length) {
+      normalizedOrigins.push({
+        originKey: asString(so.getValue({ fieldId: BODY_FIELDS.originKey })) || "",
+        origin: buildOriginFromLocation(salesOrderLocationId, config),
+        sourceOrigin: null
+      });
+      return {
+        ok: true,
+        origins: normalizedOrigins,
+        source: "sales-order"
+      };
+    }
+
+    activeOrigins.forEach(function (origin) {
+      var key = asString(
+        origin.originKey || (origin.Origin && origin.Origin.LocationCode)
+      );
+      if (!key) {
+        key = "LOC_" + salesOrderLocationId;
+      }
+      if (!uniqueOriginKeys[key]) {
+        uniqueOriginKeys[key] = true;
+        normalizedOrigins.push({
+          originKey: key,
+          origin: normalizeOriginFromQuote(origin, salesOrderLocationId, config),
+          sourceOrigin: origin
+        });
+      }
+    });
+
+    if (normalizedOrigins.length > 1) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: "Multi-origin orders are not exported yet",
+        origins: normalizedOrigins
+      };
+    }
+
+    return {
+      ok: true,
+      origins: normalizedOrigins,
+      source: "quote-json"
+    };
+  }
+
+  function buildWorkbenchPayload(so, savedId, exportOrigin, packageResult, config) {
+    var tranId = asString(so.getValue({ fieldId: "tranid" })) || String(savedId);
+    var sourceOrigin = exportOrigin && exportOrigin.sourceOrigin;
+    var rawRate = sourceOrigin && sourceOrigin.raw ? sourceOrigin.raw : null;
+    var carrier = asString(
+      (rawRate && (rawRate.carrierNumber || rawRate.carrier)) ||
+        so.getValue({ fieldId: BODY_FIELDS.carrier })
+    );
+    var service = asString(
+      (rawRate &&
+        (rawRate.carrierClassOfServiceCode || rawRate.serviceCode)) ||
+        so.getValue({ fieldId: BODY_FIELDS.service })
+    );
+    var estimatedArrivalDate = asString(
+      so.getValue({ fieldId: BODY_FIELDS.estimatedArrivalDate })
+    );
+    var transactionId =
+      sanitizeIdPart(tranId).slice(0, 15) ||
+      sanitizeIdPart("SO" + String(savedId)).slice(0, 15);
+    var payload = {
+      Location: config.location,
+      TransactionID: transactionId,
+      ExternalTransactionID: String(savedId),
+      ContextKey: tranId,
+      Origin: exportOrigin.origin,
+      Destination: buildDestinationFromSalesOrder(so),
+      PackageDetailsList: packageResult.packages,
+      ShipmentDetail: {
+        WeightUOM: "LB"
+      },
+      CustomFields: [
+        { Name: "SalesOrderInternalId", Value: String(savedId) },
+        { Name: "SalesOrderNumber", Value: tranId },
+        {
+          Name: "PacejetAmount",
+          Value: asString(so.getValue({ fieldId: BODY_FIELDS.amount }))
+        },
+        {
+          Name: "OriginKey",
+          Value: asString(exportOrigin.originKey || "")
+        }
+      ]
+    };
+
+    if (carrier || service || tranId) {
+      payload.CarrierDetails = {
+        Carrier: carrier,
+        ClassOfService: service,
+        ShipXRef: tranId
+      };
+    }
+
+    if (estimatedArrivalDate) {
+      payload.CustomFields.push({
+        Name: "EstimatedArrivalDate",
+        Value: estimatedArrivalDate
+      });
+    }
+
+    var shipmentServices = buildShipmentServicesCodesFromSalesOrder(so);
+    if (shipmentServices.length) {
+      payload.ShipmentServicesCodes = shipmentServices;
+    }
+
+    return payload;
+  }
+
+  function getPacejetHeaders(config) {
+    return {
+      "Content-Type": "application/json",
+      PacejetLocation: config.location,
+      PacejetLicenseKey: config.apiKey
+    };
+  }
+
+  function shipmentAlreadyExists(transactionId, config) {
+    try {
+      var response = https.get({
+        url:
+          config.apiUrl +
+          "/Shipments/" +
+          encodeURIComponent(transactionId) +
+          "?api-version=" +
+          encodeURIComponent(config.apiVersion),
+        headers: getPacejetHeaders(config)
+      });
+
+      return {
+        exists: response.code >= 200 && response.code < 300,
+        code: response.code,
+        body: response.body || ""
+      };
+    } catch (e) {
+      return {
+        exists: false,
+        code: 0,
+        error: e.message || String(e)
+      };
+    }
+  }
+
+  function exportSalesOrderToWorkbench(so, savedId, resolvedLocationId, quoteJson) {
+    var config = getWorkbenchConfig();
+    var originInfo;
+    var packageResult;
+    var payload;
+    var existing;
+    var response;
+
+    if (!config.enabled) {
+      return {
+        attempted: false,
+        skipped: true,
+        reason: "Workbench export disabled"
+      };
+    }
+
+    originInfo = getSelectedOriginExports(
+      so,
+      quoteJson,
+      resolvedLocationId,
+      config
+    );
+    if (!originInfo.ok) {
+      return Object.assign(
+        {
+          attempted: false
+        },
+        originInfo
+      );
+    }
+
+    packageResult = buildPackageDetailsFromSalesOrder(so);
+    if (!packageResult.packages.length) {
+      return {
+        attempted: false,
+        skipped: true,
+        reason: "No exportable packages found on Sales Order",
+        skippedLines: packageResult.skippedLines
+      };
+    }
+
+    payload = buildWorkbenchPayload(
+      so,
+      savedId,
+      originInfo.origins[0],
+      packageResult,
+      config
+    );
+    existing = shipmentAlreadyExists(payload.TransactionID, config);
+
+    if (existing.exists) {
+      return {
+        attempted: true,
+        skipped: true,
+        reason: "Shipment already exists in Pacejet",
+        transactionId: payload.TransactionID,
+        responseCode: existing.code,
+        skippedLines: packageResult.skippedLines
+      };
+    }
+
+    response = postWithRetry(
+      {
+        url:
+          config.apiUrl +
+          "/Shipments?api-version=" +
+          encodeURIComponent(config.apiVersion),
+        headers: getPacejetHeaders(config),
+        body: safeJsonStringify(payload)
+      },
+      3
+    );
+
+    return {
+      attempted: true,
+      ok: response.code >= 200 && response.code < 300,
+      transactionId: payload.TransactionID,
+      responseCode: response.code,
+      source: originInfo.source,
+      packageCount: packageResult.packages.length,
+      skippedLines: packageResult.skippedLines,
+      responseBodyPreview: asString(response.body).slice(0, 800)
+    };
+  }
+
+  function logWorkbenchExportResult(savedId, tranId, result) {
+    var payload = {
+      salesOrderId: savedId,
+      salesOrderNumber: tranId,
+      result: result || null
+    };
+
+    if (!result) {
+      log.error("Pacejet Workbench export unknown", payload);
+      return;
+    }
+
+    if (result.ok) {
+      log.audit("Pacejet Workbench export sent", payload);
+      return;
+    }
+
+    if (result.skipped) {
+      log.audit("Pacejet Workbench export skipped", payload);
+      return;
+    }
+
+    log.error("Pacejet Workbench export failed", payload);
   }
 
   function getSublistValueSafe(rec, sublistId, fieldId, line) {
@@ -716,6 +1489,10 @@ define(["N/record", "N/log"], function (record, log) {
         requestedTotals,
         amount
       );
+      var workbenchExport = null;
+      var salesOrderTranId = asString(
+        reloaded.getValue({ fieldId: "tranid" }) || savedId
+      );
       var taxDiagnostics = buildTaxDiagnostics(
         finalSnapshot,
         requestedTotals,
@@ -732,11 +1509,29 @@ define(["N/record", "N/log"], function (record, log) {
         locationSetResults
       );
 
+      try {
+        workbenchExport = exportSalesOrderToWorkbench(
+          reloaded,
+          savedId,
+          resolvedLocationId,
+          quoteJson
+        );
+      } catch (workbenchError) {
+        workbenchExport = {
+          attempted: true,
+          ok: false,
+          error: workbenchError.message || String(workbenchError)
+        };
+      }
+
+      logWorkbenchExportResult(savedId, salesOrderTranId, workbenchExport);
+
       log.audit("Pacejet test apply - after", {
         snapshot: finalSnapshot,
         resolvedLocationId: resolvedLocationId,
         locationDiagnostics: locationDiagnostics,
         responseTotals: responseTotals,
+        workbenchExport: workbenchExport,
         requestedTotals: requestedTotals,
         taxOverrideResults: taxOverrideResults,
         taxDiagnostics: taxDiagnostics,
@@ -752,6 +1547,7 @@ define(["N/record", "N/log"], function (record, log) {
         locationDiagnostics: locationDiagnostics,
         totals: responseTotals,
         snapshot: finalSnapshot,
+        workbenchExport: workbenchExport,
         taxDiagnostics: taxDiagnostics,
         // ── Included in response so you can see retry/drift info live ──
         _debug: {

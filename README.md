@@ -9,7 +9,8 @@ The main goal of the project is:
 3. Map Pacejet results to valid NetSuite ship methods.
 4. Let the shopper choose a rate in checkout.
 5. Persist the selected shipping data back to the Sales Order.
-6. Create a Customer Deposit after confirmation.
+6. Export the finalized Sales Order shipping data to Pacejet Workbench Shipping.
+7. Create a Customer Deposit after confirmation.
 
 
 #
@@ -23,8 +24,9 @@ The main goal of the project is:
 6. The user selects a shipping option in the custom Pacejet UI.
 7. `RDT.Pacejet.Checkout.Module.V2.js` syncs that ship method into the native LiveOrder shipping selector and stores the chosen Pacejet metadata in frontend state.
 8. `Test_SO_SL.js` is called to write the final shipping amount, carrier/service details, origin data, and accessorial flags back to the Sales Order.
-9. `RDT.Pacejet.Summary.js` keeps the checkout/review/confirmation summary aligned with the persisted Pacejet totals.
-10. `SO_CD.js` is called on confirmation to create a Customer Deposit tied to the completed Sales Order.
+9. `Test_SO_SL.js` then uses the saved Sales Order to create a Pacejet Workbench shipment export when the order resolves to a single warehouse origin.
+10. `RDT.Pacejet.Summary.js` keeps the checkout/review/confirmation summary aligned with the persisted Pacejet totals.
+11. `SO_CD.js` is called on confirmation to create a Customer Deposit tied to the completed Sales Order.
 
 ### Backend services
 
@@ -73,6 +75,8 @@ It:
 - Writes selected accessorial flags to custom body fields.
 - Attempts tax override and recalculation behavior and returns diagnostics showing what persisted.
 - Resolves the Sales Order `location` from the selected origin data when possible.
+- After the Sales Order save succeeds, attempts a Pacejet `POST /Shipments` Workbench export from the saved SO data.
+- Skips Workbench export for multi-origin orders so it does not send ambiguous shipment data.
 
 This Suitelet is what turns a chosen Pacejet quote into actual Sales Order data.
 
@@ -98,12 +102,13 @@ This is the final post-confirmation step in the flow.
 - `API_Pacejet.js` calculates the available shipping options.
 - The frontend extension renders those options and lets the shopper choose one.
 - `Test_SO_SL.js` persists the chosen result back to the Sales Order so NetSuite totals and custom fields match the Pacejet choice.
+- `Test_SO_SL.js` then exports the authoritative saved Sales Order to Pacejet Workbench when the order has a single resolved origin.
 - `SO_CD.js` then uses the saved Sales Order total to create the deposit after order confirmation.
 
 In short:
 
 - `API_Pacejet.js` = get rates
-- `Test_SO_SL.js` = save chosen rate to Sales Order
+- `Test_SO_SL.js` = save chosen rate to Sales Order and export to Workbench
 - `SO_CD.js` = create deposit from final order
 
 ## Extension Structure
