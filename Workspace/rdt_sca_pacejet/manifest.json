@@ -2,15 +2,14 @@
     "name": "rdt_sca_pacejet",
     "fantasyName": "RDT | SCA Pacejet Extension",
     "vendor": "RDT",
-    "version": "1.1.6",
     "type": "extension",
     "target": "SCA,SCS",
     "target_version": {
         "SCA": ">=25.1.0",
         "SCS": ">=25.1.0"
     },
+    "version": "1.1.7",
     "description": "Pacejet checkout integration using LiveOrder cart updates",
-    "skins": [],
     "assets": {
         "services": {
             "files": [
@@ -23,6 +22,16 @@
             "Modules/PJModule/Configuration/PJModule.json"
         ]
     },
+    "templates": {
+        "application": {
+            "checkout": {
+                "files": [
+                    "Modules/PJModule/Templates/rdt_rdt_sca_pacejet_pjmodule.tpl",
+                    "Modules/PJModule/Templates/rdt_pacejet_surcharge_summary_row.tpl"
+                ]
+            }
+        }
+    },
     "sass": {
         "entry_points": {
             "checkout": "Modules/PJModule/Sass/_rdt_sca_pacejet-pjmodule.scss"
@@ -30,15 +39,6 @@
         "files": [
             "Modules/PJModule/Sass/_rdt_sca_pacejet-pjmodule.scss"
         ]
-    },
-    "templates": {
-        "application": {
-            "checkout": {
-                "files": [
-                    "Modules/PJModule/Templates/rdt_rdt_sca_pacejet_pjmodule.tpl"
-                ]
-            }
-        }
     },
     "javascript": {
         "entry_points": {
@@ -59,6 +59,9 @@
                     "Modules/PJModule/JavaScript/RDT.Pacejet.Pacejet.Payload.js",
                     "Modules/PJModule/JavaScript/RDT.Pacejet.Service.js",
                     "Modules/PJModule/JavaScript/RDT.Pacejet.State.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.Surcharge.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.Surcharge.Hooks.js",
+                    "Modules/PJModule/JavaScript/RDT.Pacejet.Surcharge.Summary.View.js",
                     "Modules/PJModule/JavaScript/RDT.Pacejet.Summary.js",
                     "Modules/PJModule/JavaScript/RDT.Pacejet.UI.js",
                     "Modules/PJModule/JavaScript/RDT.Pacejet.V2.js",
@@ -77,6 +80,5 @@
             "Modules/PJModule/SuiteScript/RDT.Pacejet.Cart.Helper.js",
             "Modules/PJModule/SuiteScript/RDT.Pacejet.Cart.Model.js"
         ]
-    },
-    "local_folder": "Workspace\\rdt_sca_pacejet"
+    }
 }

@@ -3,8 +3,9 @@
 define("RDT.Pacejet.Summary", [
   "jQuery",
   "RDT.Pacejet.State",
-  "LiveOrder.Model"
-], function (jQuery, PacejetState, LiveOrderModel) {
+  "LiveOrder.Model",
+  "RDT.Pacejet.Surcharge"
+], function (jQuery, PacejetState, LiveOrderModel, PacejetSurcharge) {
   "use strict";
 
   var $ = jQuery;
@@ -59,16 +60,7 @@ define("RDT.Pacejet.Summary", [
   }
 
   function fmtMoney(n) {
-    var v = Number(n || 0);
-    if (!isFinite(v)) v = 0;
-    try {
-      return v.toLocaleString(undefined, {
-        style: "currency",
-        currency: "USD"
-      });
-    } catch (_) {
-      return "$" + v.toFixed(2);
-    }
+    return PacejetSurcharge.formatMoney(n);
   }
 
   function isConfirmationPage() {
@@ -432,7 +424,52 @@ define("RDT.Pacejet.Summary", [
       return false;
     }
 
-    return !!(data.subtotal || data.shipping || data.tax || data.total);
+    return !!(
+      data.subtotal ||
+      data.surcharge ||
+      data.shipping ||
+      data.tax ||
+      data.total
+    );
+  }
+
+  function decorateSummaryWithSurcharge(summary, surchargeSummary) {
+    if (!summary || !surchargeSummary) {
+      return summary;
+    }
+
+    summary.subtotal = surchargeSummary.baseSubtotal;
+    summary.subtotal_formatted = surchargeSummary.baseSubtotalFormatted;
+    summary.surcharge = surchargeSummary.surchargeAmount;
+    summary.surchargeamount = surchargeSummary.surchargeAmount;
+    summary.surcharge_formatted = surchargeSummary.surchargeFormatted;
+    summary.surchargerate = surchargeSummary.rate;
+    summary.surchargerate_label = surchargeSummary.rateLabel;
+    summary.baseSubtotal = surchargeSummary.baseSubtotal;
+    summary.base_subtotal = surchargeSummary.baseSubtotal;
+    summary.baseSubtotal_formatted = surchargeSummary.baseSubtotalFormatted;
+    summary.adjustedSubtotal = surchargeSummary.adjustedSubtotal;
+    summary.adjusted_subtotal = surchargeSummary.adjustedSubtotal;
+    summary.adjustedSubtotal_formatted =
+      surchargeSummary.adjustedSubtotalFormatted;
+    summary.shipping = surchargeSummary.shipping;
+    summary.shippingcost = surchargeSummary.shipping;
+    summary.shippingCost = surchargeSummary.shipping;
+    summary.estimatedshipping = surchargeSummary.shipping;
+    summary.shippingcost_formatted = surchargeSummary.shippingFormatted;
+    summary.tax = surchargeSummary.tax;
+    summary.taxtotal = surchargeSummary.tax;
+    summary.taxTotal = surchargeSummary.tax;
+    summary.taxamount = surchargeSummary.tax;
+    summary.taxAmount = surchargeSummary.tax;
+    summary.taxtotal_formatted = surchargeSummary.taxFormatted;
+    summary.total = surchargeSummary.total;
+    summary.totalamount = surchargeSummary.total;
+    summary.totalAmount = surchargeSummary.total;
+    summary.order_total = surchargeSummary.total;
+    summary.total_formatted = surchargeSummary.totalFormatted;
+
+    return summary;
   }
 
   function buildOverriddenSummary(order, sourceSummary) {
@@ -440,10 +477,9 @@ define("RDT.Pacejet.Summary", [
     var authoritativeSummary = getPersistedStateSummaryForOrder(order);
     var resolvedShipping = getResolvedShippingAmount(order, summary);
     var subtotal;
-    var nativeTax;
     var shipping;
     var taxTotal;
-    var total;
+    var surchargeSummary;
     var subtotalKeys = ["subtotal"];
     var shippingKeys = [
       "shipping",
@@ -452,7 +488,6 @@ define("RDT.Pacejet.Summary", [
       "estimatedshipping"
     ];
     var taxKeys = ["taxtotal", "taxTotal", "tax", "taxamount", "taxAmount"];
-    var totalKeys = ["total", "totalamount", "totalAmount", "order_total"];
 
     if (authoritativeSummary) {
       shipping = hasSummaryValue(authoritativeSummary, shippingKeys)
@@ -464,74 +499,22 @@ define("RDT.Pacejet.Summary", [
       taxTotal = hasSummaryValue(authoritativeSummary, taxKeys)
         ? asNumber(getSummaryValue(authoritativeSummary, taxKeys), 0)
         : asNumber(getSummaryValue(summary, taxKeys), 0);
-      total = hasSummaryValue(authoritativeSummary, totalKeys)
-        ? asNumber(getSummaryValue(authoritativeSummary, totalKeys), 0)
-        : +(subtotal + shipping + taxTotal).toFixed(2);
-
-      summary.shipping = shipping;
-      summary.shippingcost = shipping;
-      summary.shippingCost = shipping;
-      summary.estimatedshipping = shipping;
-      summary.tax = taxTotal;
-      summary.taxtotal = taxTotal;
-      summary.taxTotal = taxTotal;
-      summary.taxamount = taxTotal;
-      summary.taxAmount = taxTotal;
-      summary.total = total;
-      summary.totalamount = total;
-      summary.totalAmount = total;
-      summary.order_total = total;
-      summary.subtotal = subtotal;
-      summary[SUMMARY_OVERRIDE_FLAG] = true;
-      summary[SUMMARY_OVERRIDE_SHIPPING_KEY] = summary.shipping;
-      return summary;
+    } else {
+      subtotal = asNumber(getSummaryValue(summary, subtotalKeys), 0);
+      shipping = asNumber(resolvedShipping.amount, 0);
+      taxTotal = asNumber(getSummaryValue(summary, taxKeys), 0);
     }
 
-    if (!resolvedShipping || resolvedShipping.source === "native") {
-      return summary;
-    }
+    surchargeSummary = PacejetSurcharge.buildSummary(subtotal, shipping, taxTotal);
 
-    if (
-      asNumber(getSummaryValue(summary, shippingKeys), 0) ===
-      asNumber(resolvedShipping.amount, 0)
-    ) {
-      return summary;
-    }
-
-    if (
-      summary[SUMMARY_OVERRIDE_FLAG] &&
-      asNumber(summary[SUMMARY_OVERRIDE_SHIPPING_KEY], null) ===
-        asNumber(resolvedShipping.amount, 0)
-    ) {
-      return summary;
-    }
-
-    subtotal = asNumber(getSummaryValue(summary, subtotalKeys), 0);
-    nativeTax = asNumber(getSummaryValue(summary, taxKeys), 0);
-    shipping = asNumber(resolvedShipping.amount, 0);
-    taxTotal = +nativeTax.toFixed(2);
-    total = +(subtotal + shipping + taxTotal).toFixed(2);
-
-    summary.shipping = shipping;
-    summary.shippingcost = shipping;
-    summary.shippingCost = shipping;
-    summary.estimatedshipping = shipping;
     summary.handlingcost = 0;
     summary.handlingCost = 0;
     summary.showHandlingCost = false;
     summary.handlingcost_formatted = "";
     summary.handlingCost_formatted = "";
-    summary.tax = taxTotal;
-    summary.taxtotal = taxTotal;
-    summary.taxTotal = taxTotal;
-    summary.taxamount = taxTotal;
-    summary.taxAmount = taxTotal;
-    summary.total = total;
-    summary.totalamount = total;
-    summary.totalAmount = total;
-    summary.order_total = total;
+    decorateSummaryWithSurcharge(summary, surchargeSummary);
     summary[SUMMARY_OVERRIDE_FLAG] = true;
-    summary[SUMMARY_OVERRIDE_SHIPPING_KEY] = shipping;
+    summary[SUMMARY_OVERRIDE_SHIPPING_KEY] = surchargeSummary.shipping;
 
     return summary;
   }
@@ -647,19 +630,27 @@ define("RDT.Pacejet.Summary", [
 
     var summary = getOrderSummaryRecord(order);
     var shipping = getShipping(order);
+    var subtotal = num(summary.subtotal || 0);
+    var taxAmount = num(
+      summary.taxtotal ||
+        summary.taxTotal ||
+        summary.tax ||
+        summary.taxamount ||
+        summary.taxAmount ||
+        0
+    );
+    var surchargeSummary = PacejetSurcharge.buildSummary(
+      subtotal,
+      shipping,
+      taxAmount
+    );
     var payload = {
       stage: stage,
       shipmethod: order.get("shipmethod"),
-      summarySubtotal: num(summary.subtotal || 0),
+      summarySubtotal: subtotal,
+      summarySurcharge: surchargeSummary.surchargeAmount,
       summaryShipping: shipping,
-      summaryTax: num(
-        summary.taxtotal ||
-          summary.taxTotal ||
-          summary.tax ||
-          summary.taxamount ||
-          summary.taxAmount ||
-          0
-      ),
+      summaryTax: taxAmount,
       summaryTotal: num(
         summary.total ||
           summary.totalamount ||
@@ -681,7 +672,7 @@ define("RDT.Pacejet.Summary", [
     var summary = buildOverriddenSummary(order, sourceSummary);
     var authoritativeSummary = getPersistedStateSummaryForOrder(order);
     var resolvedShipping = getResolvedShippingAmount(order, sourceSummary);
-    var tax = num(
+    var tax = PacejetSurcharge.asNumber(
       summary.taxtotal ||
         summary.taxTotal ||
         summary.tax ||
@@ -692,26 +683,30 @@ define("RDT.Pacejet.Summary", [
     var shipping = authoritativeSummary
       ? asNumber(authoritativeSummary.shipping, 0)
       : asNumber(resolvedShipping.amount, 0);
-    var subtotal = num(summary.subtotal || 0);
-    var total = num(
-      summary.total ||
-        summary.totalamount ||
-        summary.totalAmount ||
-        summary.order_total ||
-        0
+    var subtotal = PacejetSurcharge.asNumber(summary.subtotal || 0, 0);
+    var surchargeSummary = PacejetSurcharge.buildSummary(
+      subtotal,
+      shipping,
+      tax
     );
 
-    if (authoritativeSummary) {
-      total = asNumber(authoritativeSummary.total, total);
-    } else if (resolvedShipping.source !== "native" || !total) {
-      total = +(subtotal + shipping + tax).toFixed(2);
-    }
-
     var data = {
-      subtotal: subtotal,
-      shipping: shipping,
-      tax: tax,
-      total: total
+      subtotal: surchargeSummary.baseSubtotal,
+      baseSubtotal: surchargeSummary.baseSubtotal,
+      surcharge: surchargeSummary.surchargeAmount,
+      surchargeFormatted: surchargeSummary.surchargeFormatted,
+      surchargeRate: surchargeSummary.rate,
+      surchargeRateLabel: surchargeSummary.rateLabel,
+      surchargeLabel: "Surcharge " + surchargeSummary.rateLabel,
+      adjustedSubtotal: surchargeSummary.adjustedSubtotal,
+      adjustedSubtotalFormatted: surchargeSummary.adjustedSubtotalFormatted,
+      shipping: surchargeSummary.shipping,
+      shippingFormatted: surchargeSummary.shippingFormatted,
+      tax: surchargeSummary.tax,
+      taxFormatted: surchargeSummary.taxFormatted,
+      total: surchargeSummary.total,
+      totalFormatted: surchargeSummary.totalFormatted,
+      showSurcharge: surchargeSummary.surchargeAmount > 0
     };
 
     logSummaryDebug(order, "getSummary", data);
@@ -913,6 +908,66 @@ define("RDT.Pacejet.Summary", [
     return 1;
   }
 
+  function ensureInjectedSurchargeRow(data) {
+    var $container = getSummaryContainer();
+    var $row;
+    var rowHtml;
+    var $subtotalBlock;
+    var $shippingBlock;
+    var $totalBlock;
+
+    if (isConfirmationPage()) return 0;
+    if (!$container.length) return 0;
+
+    $row = $container.find(".rdt-pj-surcharge-row");
+
+    if (!data || !data.showSurcharge) {
+      $container.find(".rdt-pj-surcharge-row-fallback").remove();
+      return $row.length;
+    }
+
+    if (!$row.length) {
+      rowHtml =
+        '<p class="order-wizard-cart-summary-grid-float rdt-pj-surcharge-row rdt-pj-surcharge-row-fallback">' +
+        '<span class="order-wizard-cart-summary-grid-right rdt-pj-surcharge-value"></span>' +
+        '<span class="order-wizard-cart-summary-grid-left rdt-pj-surcharge-label"></span>' +
+        "</p>";
+
+      $subtotalBlock = $container.find(
+        ".order-wizard-cart-summary-body > .order-wizard-cart-summary-subtotal, " +
+          ".order-wizard-cart-summary-subtotal"
+      );
+      $shippingBlock = $container.find(
+        ".order-wizard-cart-summary-shipping, " +
+          ".order-wizard-cart-summary-shipping-cost-applied"
+      );
+      $totalBlock = $container.find(".order-wizard-cart-summary-total");
+
+      if ($subtotalBlock.length) {
+        $subtotalBlock.last().after(rowHtml);
+      } else if ($shippingBlock.length) {
+        $shippingBlock.first().before(rowHtml);
+      } else if ($totalBlock.length) {
+        $totalBlock.first().before(rowHtml);
+      } else {
+        $container.append(rowHtml);
+      }
+
+      $row = $container.find(".rdt-pj-surcharge-row");
+    }
+
+    $row
+      .find(".rdt-pj-surcharge-value, .order-wizard-cart-summary-grid-right")
+      .first()
+      .text(data.surchargeFormatted || fmtMoney(data.surcharge));
+    $row
+      .find(".rdt-pj-surcharge-label, .order-wizard-cart-summary-grid-left")
+      .first()
+      .text(data.surchargeLabel || "Surcharge 2%");
+
+    return 1;
+  }
+
   function ensureCheckoutTaxRow(data) {
     if (!data) return;
     if (isConfirmationPage()) return;
@@ -940,6 +995,7 @@ define("RDT.Pacejet.Summary", [
       ".order-wizard-cart-summary-taxes",
       ".order-wizard-cart-summary-estimated-tax",
       ".order-wizard-cart-summary-total",
+      ".rdt-pj-surcharge-row",
       ".rdt-pj-tax-row"
     ];
 
@@ -985,6 +1041,12 @@ define("RDT.Pacejet.Summary", [
 
     var rows = [
       { key: "subtotal", label: "Subtotal", amount: data.subtotal },
+      {
+        key: "surcharge",
+        label: data.surchargeLabel || "Surcharge 2%",
+        amount: data.surcharge,
+        show: data.showSurcharge
+      },
       { key: "shipping", label: "Shipping", amount: data.shipping },
       { key: "tax", label: "Tax", amount: data.tax },
       { key: "total", label: "Total", amount: data.total }
@@ -1003,6 +1065,10 @@ define("RDT.Pacejet.Summary", [
     $custom.empty();
 
     rows.forEach(function (row) {
+      if (row.show === false) {
+        return;
+      }
+
       var rowClass =
         "rdt-pj-confirmation-row rdt-pj-confirmation-row-" + row.key;
       var html =
@@ -1100,6 +1166,7 @@ define("RDT.Pacejet.Summary", [
     paintValueByLabel(/\btotal\b/i, fmtMoney(data.total));
 
     ensureCheckoutTaxRow(data);
+    ensureInjectedSurchargeRow(data);
 
     // Optional compatibility hook
     var $trueTotal = $("#rdt-true-total-amount");
@@ -1114,6 +1181,7 @@ define("RDT.Pacejet.Summary", [
 
     paintSummary(data);
     ensureCheckoutTaxRow(data);
+    ensureInjectedSurchargeRow(data);
 
     // Checkout can repaint summary after async view refresh; repaint once shortly after.
     if (SUMMARY_REPAINT_TIMER) clearTimeout(SUMMARY_REPAINT_TIMER);
@@ -1122,6 +1190,7 @@ define("RDT.Pacejet.Summary", [
       if (lateData) {
         paintSummary(lateData);
         ensureCheckoutTaxRow(lateData);
+        ensureInjectedSurchargeRow(lateData);
       }
     }, 320);
 
@@ -1129,6 +1198,7 @@ define("RDT.Pacejet.Summary", [
       var delayedData = getSummary(order);
       if (delayedData) {
         ensureCheckoutTaxRow(delayedData);
+        ensureInjectedSurchargeRow(delayedData);
       }
     }, 900);
 
@@ -1136,6 +1206,7 @@ define("RDT.Pacejet.Summary", [
       var delayedData = getSummary(order);
       if (delayedData) {
         ensureCheckoutTaxRow(delayedData);
+        ensureInjectedSurchargeRow(delayedData);
       }
     }, 1600);
   }

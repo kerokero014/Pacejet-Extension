@@ -4,6 +4,8 @@
  * @description Create a Customer Deposit from the persisted Sales Order card portion; skip deposit for pure terms orders
  */
 define(["N/record", "N/log"], (record, log) => {
+  var SURCHARGE_ITEM_ID = 7768;
+
   function num(v) {
     var n = parseFloat(v);
     return isFinite(n) ? n : 0;
@@ -17,16 +19,61 @@ define(["N/record", "N/log"], (record, log) => {
     return v === true || v === "T" || v === "true" || v === 1 || v === "1";
   }
 
+  function getLineCountSafe(rec, sublistId) {
+    try {
+      return rec.getLineCount({ sublistId: sublistId }) || 0;
+    } catch (_e) {
+      return 0;
+    }
+  }
+
+  function getSublistValueSafe(rec, sublistId, fieldId, line) {
+    try {
+      return rec.getSublistValue({
+        sublistId: sublistId,
+        fieldId: fieldId,
+        line: line
+      });
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function getSurchargeAmountFromSO(soRec) {
+    var count = getLineCountSafe(soRec, "item");
+    var total = 0;
+    var i;
+
+    for (i = 0; i < count; i += 1) {
+      if (
+        String(getSublistValueSafe(soRec, "item", "item", i) || "") !==
+        String(SURCHARGE_ITEM_ID)
+      ) {
+        continue;
+      }
+
+      total += num(
+        getSublistValueSafe(soRec, "item", "amount", i) ||
+          getSublistValueSafe(soRec, "item", "grossamt", i) ||
+          0
+      );
+    }
+
+    return round2(total);
+  }
+
   function readSalesOrderAmounts(soRec) {
     var subtotal = num(soRec.getValue({ fieldId: "subtotal" }));
+    var surcharge = getSurchargeAmountFromSO(soRec);
     var shipping = num(soRec.getValue({ fieldId: "shippingcost" }));
     var tax = num(soRec.getValue({ fieldId: "taxtotal" }));
     var total = num(soRec.getValue({ fieldId: "total" }));
 
-    var computedTotal = round2(subtotal + shipping + tax);
+    var computedTotal = round2(subtotal + surcharge + shipping + tax);
 
     return {
       subtotal: round2(subtotal),
+      surcharge: surcharge,
       shipping: round2(shipping),
       tax: round2(tax),
       total: round2(total),
@@ -55,6 +102,7 @@ define(["N/record", "N/log"], (record, log) => {
         soId: soId,
         attempt: i + 1,
         subtotal: amounts.subtotal,
+        surcharge: amounts.surcharge,
         shipping: amounts.shipping,
         tax: amounts.tax,
         total: amounts.total,
@@ -80,11 +128,11 @@ define(["N/record", "N/log"], (record, log) => {
       soRec: last.soRec,
       amounts: last.amounts,
       salesOrderTotal:
-        Math.abs(amounts.total - amounts.computedTotal) < 0.01
-          ? amounts.total
-          : amounts.computedTotal > amounts.total + 0.01
-            ? amounts.computedTotal
-            : amounts.total
+        Math.abs(last.amounts.total - last.amounts.computedTotal) < 0.01
+          ? last.amounts.total
+          : last.amounts.computedTotal > last.amounts.total + 0.01
+            ? last.amounts.computedTotal
+            : last.amounts.total
     };
   }
 
@@ -307,6 +355,7 @@ define(["N/record", "N/log"], (record, log) => {
 
     var subtotal = amounts.subtotal;
     var shipping = amounts.shipping;
+    var surcharge = amounts.surcharge;
     var tax = amounts.tax;
     var salesOrderTotal = soInfo.salesOrderTotal;
 
@@ -323,6 +372,7 @@ define(["N/record", "N/log"], (record, log) => {
       currencyId: currencyId,
       locationId: locationId,
       subtotal: subtotal,
+      surcharge: surcharge,
       shipping: shipping,
       tax: tax,
       salesOrderTotal: salesOrderTotal,
@@ -351,6 +401,7 @@ define(["N/record", "N/log"], (record, log) => {
         salesOrderTotal: salesOrderTotal,
         salesOrderAmounts: {
           subtotal: subtotal,
+          surcharge: surcharge,
           shipping: shipping,
           tax: tax,
           total: salesOrderTotal
@@ -436,6 +487,7 @@ define(["N/record", "N/log"], (record, log) => {
       salesOrderTotal: salesOrderTotal,
       salesOrderAmounts: {
         subtotal: subtotal,
+        surcharge: surcharge,
         shipping: shipping,
         tax: tax,
         total: salesOrderTotal

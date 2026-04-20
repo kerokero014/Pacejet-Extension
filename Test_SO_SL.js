@@ -5,6 +5,9 @@
 define(["N/record", "N/log"], function (record, log) {
   "use strict";
 
+  var SURCHARGE_ITEM_ID = 7768;
+  var SURCHARGE_RATE = 0.02;
+
   var BODY_FIELDS = {
     amount: "custbody_rdt_pacejet_amount",
     carrier: "custbody_rdt_pj_carrier_name",
@@ -50,6 +53,10 @@ define(["N/record", "N/log"], function (record, log) {
     return isFinite(n) ? n : 0;
   }
 
+  function round2(value) {
+    return Math.round((asNumber(value) + Number.EPSILON) * 100) / 100;
+  }
+
   function asString(value) {
     return value == null ? "" : String(value);
   }
@@ -88,6 +95,7 @@ define(["N/record", "N/log"], function (record, log) {
     var data = snapshot && typeof snapshot === "object" ? snapshot : {};
     return {
       subtotal: asNumber(data.subtotal),
+      surcharge: asNumber(data.surcharge),
       shipping: asNumber(data.shippingcost),
       tax: asNumber(data.taxtotal),
       total: asNumber(data.total)
@@ -384,6 +392,7 @@ define(["N/record", "N/log"], function (record, log) {
       location: so.getValue({ fieldId: "location" }) || "",
       shipmethod: so.getValue({ fieldId: "shipmethod" }) || "",
       subtotal: Number(so.getValue({ fieldId: "subtotal" }) || 0),
+      surcharge: getSurchargeLineAmount(so),
       shippingcost: Number(so.getValue({ fieldId: "shippingcost" }) || 0),
       taxtotal: Number(so.getValue({ fieldId: "taxtotal" }) || 0),
       total: Number(so.getValue({ fieldId: "total" }) || 0),
@@ -413,6 +422,116 @@ define(["N/record", "N/log"], function (record, log) {
     };
   }
 
+  function getItemLineCount(rec) {
+    try {
+      return rec.getLineCount({ sublistId: "item" }) || 0;
+    } catch (_e) {
+      return 0;
+    }
+  }
+
+  function getItemSublistValue(rec, fieldId, line) {
+    return getSublistValueSafe(rec, "item", fieldId, line);
+  }
+
+  function isSurchargeItemLine(rec, line) {
+    return String(getItemSublistValue(rec, "item", line) || "") ===
+      String(SURCHARGE_ITEM_ID);
+  }
+
+  function getSurchargeLineAmount(rec) {
+    var count = getItemLineCount(rec);
+    var total = 0;
+    var i;
+
+    for (i = 0; i < count; i += 1) {
+      if (!isSurchargeItemLine(rec, i)) {
+        continue;
+      }
+
+      total += asNumber(
+        getItemSublistValue(rec, "amount", i) ||
+          getItemSublistValue(rec, "grossamt", i) ||
+          0
+      );
+    }
+
+    return round2(total);
+  }
+
+  function ensureSurchargeLine(so, surchargeAmount) {
+    var lineCount = getItemLineCount(so);
+    var i;
+    var firstLine = -1;
+    var normalizedAmount = round2(surchargeAmount);
+
+    for (i = lineCount - 1; i >= 0; i -= 1) {
+      if (!isSurchargeItemLine(so, i)) {
+        continue;
+      }
+
+      if (firstLine === -1) {
+        firstLine = i;
+        continue;
+      }
+
+      so.removeLine({
+        sublistId: "item",
+        line: i,
+        ignoreRecalc: false
+      });
+    }
+
+    if (firstLine !== -1) {
+      so.selectLine({ sublistId: "item", line: firstLine });
+    } else {
+      so.selectNewLine({ sublistId: "item" });
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "item",
+        value: SURCHARGE_ITEM_ID
+      });
+    }
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "quantity",
+        value: 1
+      });
+    } catch (_e) {}
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "rate",
+        value: "2.0%"
+      });
+    } catch (_e_rate) {
+      try {
+        so.setCurrentSublistValue({
+          sublistId: "item",
+          fieldId: "amount",
+          value: normalizedAmount
+        });
+      } catch (_e_amount) {}
+    }
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "taxcode",
+        value: -7
+      });
+    } catch (_e_taxcode) {}
+
+    so.commitLine({
+      sublistId: "item"
+    });
+
+    return normalizedAmount;
+  }
+
   function trySetValue(rec, fieldId, value, results) {
     try {
       rec.setValue({ fieldId: fieldId, value: value });
@@ -439,6 +558,11 @@ define(["N/record", "N/log"], function (record, log) {
     requestedTotals,
     taxOverrideResults
   ) {
+    var merchandiseSubtotal = asNumber(so.getValue({ fieldId: "subtotal" }));
+    var surchargeAmount = round2(merchandiseSubtotal * SURCHARGE_RATE);
+
+    ensureSurchargeLine(so, surchargeAmount);
+
     so.setValue({ fieldId: "shipmethod", value: shipmethod });
     so.setValue({ fieldId: "shippingcost", value: amount });
 
