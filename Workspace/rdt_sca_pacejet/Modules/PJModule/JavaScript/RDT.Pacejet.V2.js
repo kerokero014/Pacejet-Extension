@@ -199,13 +199,42 @@ define("RDT.Pacejet.V2", [
       data && data.snapshot && typeof data.snapshot === "object"
         ? data.snapshot
         : null;
+    var responseTotals =
+      data && data.totals && typeof data.totals === "object"
+        ? data.totals
+        : {};
+    var adjustedSubtotal;
+    var surcharge;
+    var baseSubtotal;
 
     if (!snapshot) {
       return null;
     }
 
+    adjustedSubtotal = +asNumber(snapshot.subtotal, 0).toFixed(2);
+    surcharge = +asNumber(
+      snapshot.surcharge !== undefined && snapshot.surcharge !== null
+        ? snapshot.surcharge
+        : responseTotals.surcharge,
+      0
+    ).toFixed(2);
+    baseSubtotal = +asNumber(
+      snapshot.baseSubtotal !== undefined && snapshot.baseSubtotal !== null
+        ? snapshot.baseSubtotal
+        : responseTotals.baseSubtotal !== undefined &&
+          responseTotals.baseSubtotal !== null
+        ? responseTotals.baseSubtotal
+        : surcharge > 0
+        ? adjustedSubtotal - surcharge
+        : adjustedSubtotal,
+      adjustedSubtotal
+    ).toFixed(2);
+
     return {
-      subtotal: +asNumber(snapshot.subtotal, 0).toFixed(2),
+      subtotal: baseSubtotal,
+      baseSubtotal: baseSubtotal,
+      adjustedSubtotal: adjustedSubtotal,
+      surcharge: surcharge,
       shipping: +asNumber(snapshot.shippingcost, snapshot.shipping).toFixed(2),
       tax: +asNumber(snapshot.taxtotal, snapshot.tax).toFixed(2),
       total: +asNumber(snapshot.total, 0).toFixed(2)
@@ -219,8 +248,28 @@ define("RDT.Pacejet.V2", [
         ? confirmation.summary
         : {};
     var sourceSummary = safeGet(order, "summary") || {};
+    var summarySubtotal =
+      summaryData && typeof summaryData === "object"
+        ? getSummaryValue(summaryData, ["baseSubtotal", "subtotal"])
+        : null;
+    var summaryTax =
+      summaryData && typeof summaryData === "object"
+        ? getSummaryValue(summaryData, [
+            "tax",
+            "taxtotal",
+            "taxTotal",
+            "taxamount",
+            "taxAmount"
+          ])
+        : null;
+    var summaryTotal =
+      summaryData && typeof summaryData === "object"
+        ? getSummaryValue(summaryData, ["total", "totalAmount", "totalamount"])
+        : null;
     var subtotal = asNumber(
-      getSummaryValue(confirmationSummary, ["subtotal"]) !== null
+      summarySubtotal !== null
+        ? summarySubtotal
+        : getSummaryValue(confirmationSummary, ["subtotal"]) !== null
         ? getSummaryValue(confirmationSummary, ["subtotal"])
         : getSummaryValue(sourceSummary, ["subtotal"]),
       0
@@ -268,8 +317,14 @@ define("RDT.Pacejet.V2", [
         : summaryShipping,
       summaryShipping
     );
-    var tax = +nativeTax.toFixed(2);
-    var total = +(subtotal + shipping + tax).toFixed(2);
+    var tax = +asNumber(
+      summaryTax !== null ? summaryTax : nativeTax,
+      nativeTax
+    ).toFixed(2);
+    var total = +asNumber(
+      summaryTotal !== null ? summaryTotal : subtotal + shipping + tax,
+      subtotal + shipping + tax
+    ).toFixed(2);
 
     return {
       subtotal: +subtotal.toFixed(2),
@@ -586,12 +641,29 @@ define("RDT.Pacejet.V2", [
           response.ok &&
           (response.totals || response.snapshot)
         ) {
-          var authoritativeTotals = extractSnapshotTotals(response) || {
-            subtotal: Number(response.totals.subtotal || 0),
-            shipping: Number(response.totals.shipping || 0),
-            tax: Number(response.totals.tax || 0),
-            total: Number(response.totals.total || 0)
-          };
+          var authoritativeTotals = extractSnapshotTotals(response);
+
+          if (!authoritativeTotals) {
+            var responseSubtotal = Number(response.totals.subtotal || 0);
+            var responseSurcharge = Number(response.totals.surcharge || 0);
+            var responseBaseSubtotal =
+              response.totals.baseSubtotal !== undefined &&
+              response.totals.baseSubtotal !== null
+                ? Number(response.totals.baseSubtotal || 0)
+                : responseSurcharge > 0
+                ? responseSubtotal - responseSurcharge
+                : responseSubtotal;
+
+            authoritativeTotals = {
+              subtotal: +responseBaseSubtotal.toFixed(2),
+              baseSubtotal: +responseBaseSubtotal.toFixed(2),
+              adjustedSubtotal: +responseSubtotal.toFixed(2),
+              surcharge: +responseSurcharge.toFixed(2),
+              shipping: Number(response.totals.shipping || 0),
+              tax: Number(response.totals.tax || 0),
+              total: Number(response.totals.total || 0)
+            };
+          }
 
           PacejetState.setPersistenceResult({
             saved: true,

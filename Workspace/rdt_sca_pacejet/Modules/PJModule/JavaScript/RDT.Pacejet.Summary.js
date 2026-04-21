@@ -169,6 +169,42 @@ define("RDT.Pacejet.Summary", [
     return false;
   }
 
+  function getKnownSurcharge(summary) {
+    var keys = [
+      "surcharge",
+      "surchargeamount",
+      "surchargeAmount",
+      "surcharge_amount"
+    ];
+
+    if (!hasSummaryValue(summary, keys)) {
+      return null;
+    }
+
+    return asNumber(getSummaryValue(summary, keys), 0);
+  }
+
+  function getBaseSubtotal(summary, fallbackSubtotal) {
+    var baseSubtotalKeys = ["baseSubtotal", "base_subtotal"];
+    var subtotalKeys = ["subtotal"];
+    var hasBaseSubtotal = hasSummaryValue(summary, baseSubtotalKeys);
+    var subtotal = hasBaseSubtotal
+      ? asNumber(getSummaryValue(summary, baseSubtotalKeys), fallbackSubtotal)
+      : asNumber(getSummaryValue(summary || {}, subtotalKeys), fallbackSubtotal);
+    var surcharge = getKnownSurcharge(summary);
+
+    if (
+      !hasBaseSubtotal &&
+      surcharge !== null &&
+      surcharge > 0 &&
+      subtotal >= surcharge
+    ) {
+      return PacejetSurcharge.round2(subtotal - surcharge);
+    }
+
+    return subtotal;
+  }
+
   function getFieldValue(field) {
     if (!field || typeof field !== "object") {
       return "";
@@ -493,14 +529,21 @@ define("RDT.Pacejet.Summary", [
       shipping = hasSummaryValue(authoritativeSummary, shippingKeys)
         ? asNumber(getSummaryValue(authoritativeSummary, shippingKeys), 0)
         : asNumber(resolvedShipping.amount, 0);
-      subtotal = hasSummaryValue(authoritativeSummary, subtotalKeys)
-        ? asNumber(getSummaryValue(authoritativeSummary, subtotalKeys), 0)
+      subtotal = hasSummaryValue(authoritativeSummary, [
+        "baseSubtotal",
+        "base_subtotal",
+        "subtotal"
+      ])
+        ? getBaseSubtotal(
+            authoritativeSummary,
+            asNumber(getSummaryValue(summary, subtotalKeys), 0)
+          )
         : asNumber(getSummaryValue(summary, subtotalKeys), 0);
       taxTotal = hasSummaryValue(authoritativeSummary, taxKeys)
         ? asNumber(getSummaryValue(authoritativeSummary, taxKeys), 0)
         : asNumber(getSummaryValue(summary, taxKeys), 0);
     } else {
-      subtotal = asNumber(getSummaryValue(summary, subtotalKeys), 0);
+      subtotal = getBaseSubtotal(summary, 0);
       shipping = asNumber(resolvedShipping.amount, 0);
       taxTotal = asNumber(getSummaryValue(summary, taxKeys), 0);
     }

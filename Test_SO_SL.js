@@ -6,7 +6,9 @@ define(["N/record", "N/log"], function (record, log) {
   "use strict";
 
   var SURCHARGE_ITEM_ID = 7768;
+  var SUBTOTAL_ITEM_ID = -2;
   var SURCHARGE_RATE = 0.02;
+  var AVATAX_NON_TAXABLE_CODE = "NT";
 
   var BODY_FIELDS = {
     amount: "custbody_rdt_pacejet_amount",
@@ -93,9 +95,18 @@ define(["N/record", "N/log"], function (record, log) {
 
   function buildTotalsFromSnapshot(snapshot) {
     var data = snapshot && typeof snapshot === "object" ? snapshot : {};
+    var adjustedSubtotal = asNumber(data.subtotal);
+    var surcharge = asNumber(data.surcharge);
+    var baseSubtotal =
+      surcharge > 0 && adjustedSubtotal >= surcharge
+        ? round2(adjustedSubtotal - surcharge)
+        : adjustedSubtotal;
+
     return {
-      subtotal: asNumber(data.subtotal),
-      surcharge: asNumber(data.surcharge),
+      subtotal: baseSubtotal,
+      baseSubtotal: baseSubtotal,
+      adjustedSubtotal: adjustedSubtotal,
+      surcharge: surcharge,
       shipping: asNumber(data.shippingcost),
       tax: asNumber(data.taxtotal),
       total: asNumber(data.total)
@@ -178,6 +189,41 @@ define(["N/record", "N/log"], function (record, log) {
     return { available: true, count: count, lines: lines };
   }
 
+  function getSurchargeLineTaxSnapshot(rec) {
+    var count = getItemLineCount(rec);
+    var lines = [];
+    var i;
+
+    for (i = 0; i < count; i += 1) {
+      if (!isSurchargeItemLine(rec, i)) {
+        continue;
+      }
+
+      lines.push({
+        line: i,
+        item: getItemSublistValue(rec, "item", i),
+        amount: getItemSublistValue(rec, "amount", i),
+        grossamt: getItemSublistValue(rec, "grossamt", i),
+        price: getItemSublistValue(rec, "price", i),
+        rate: getItemSublistValue(rec, "rate", i),
+        description: getItemSublistValue(rec, "description", i),
+        taxcode: getItemSublistValue(rec, "taxcode", i),
+        istaxable: getItemSublistValue(rec, "istaxable", i),
+        taxable: getItemSublistValue(rec, "taxable", i),
+        taxrate1: getItemSublistValue(rec, "taxrate1", i),
+        tax1amt: getItemSublistValue(rec, "tax1amt", i),
+        avaTaxCodeMapping: getItemSublistValue(
+          rec,
+          "custcol_ava_taxcodemapping",
+          i
+        ),
+        avaTaxAmount: getItemSublistValue(rec, "custcol_ava_taxamount", i)
+      });
+    }
+
+    return lines;
+  }
+
   function buildTaxFieldSnapshot(rec) {
     return {
       taxitem: getValueSafe(rec, "taxitem"),
@@ -194,7 +240,8 @@ define(["N/record", "N/log"], function (record, log) {
       shipmethod: getValueSafe(rec, "shipmethod"),
       shippingcost: getValueSafe(rec, "shippingcost"),
       subtotal: getValueSafe(rec, "subtotal"),
-      total: getValueSafe(rec, "total")
+      total: getValueSafe(rec, "total"),
+      surchargeLines: getSurchargeLineTaxSnapshot(rec)
     };
   }
 
@@ -256,6 +303,14 @@ define(["N/record", "N/log"], function (record, log) {
       result.message = e.message || String(e);
     }
     return result;
+  }
+
+  function skipCalculateTax(reason) {
+    return {
+      attempted: false,
+      success: false,
+      message: reason || "Skipped calculateTax for Pacejet surcharge apply."
+    };
   }
 
   function buildTaxDiagnostics(
@@ -418,7 +473,8 @@ define(["N/record", "N/log"], function (record, log) {
         so.getValue({ fieldId: BODY_FIELDS.dangerousGoods }) || false,
       noneAdditionalFeesMayApply:
         so.getValue({ fieldId: BODY_FIELDS.noneAdditionalFeesMayApply }) ||
-        false
+        false,
+      surchargeLines: getSurchargeLineTaxSnapshot(so)
     };
   }
 
@@ -437,6 +493,31 @@ define(["N/record", "N/log"], function (record, log) {
   function isSurchargeItemLine(rec, line) {
     return String(getItemSublistValue(rec, "item", line) || "") ===
       String(SURCHARGE_ITEM_ID);
+  }
+
+  function isSubtotalItemLine(rec, line) {
+    return String(getItemSublistValue(rec, "item", line) || "") ===
+      String(SUBTOTAL_ITEM_ID);
+  }
+
+  function isManagedSurchargeLine(rec, line) {
+    return isSurchargeItemLine(rec, line) || isSubtotalItemLine(rec, line);
+  }
+
+  function getMerchandiseSubtotal(rec) {
+    var count = getItemLineCount(rec);
+    var total = 0;
+    var i;
+
+    for (i = 0; i < count; i += 1) {
+      if (isManagedSurchargeLine(rec, i)) {
+        continue;
+      }
+
+      total += asNumber(getItemSublistValue(rec, "amount", i) || 0);
+    }
+
+    return round2(total);
   }
 
   function getSurchargeLineAmount(rec) {
@@ -459,19 +540,54 @@ define(["N/record", "N/log"], function (record, log) {
     return round2(total);
   }
 
-  function ensureSurchargeLine(so, surchargeAmount) {
-    var lineCount = getItemLineCount(so);
+  function markCurrentLineNonTaxable(so) {
+    var nonTaxLineFields = [
+      { fieldId: "istaxable", value: false },
+      { fieldId: "taxable", value: false },
+      { fieldId: "taxrate1", value: 0 },
+      { fieldId: "tax1amt", value: 0 },
+      { fieldId: "custcol_ava_taxcodemapping", value: AVATAX_NON_TAXABLE_CODE },
+      { fieldId: "custcol_ava_taxamount", value: 0 }
+    ];
     var i;
-    var firstLine = -1;
-    var normalizedAmount = round2(surchargeAmount);
 
-    for (i = lineCount - 1; i >= 0; i -= 1) {
+    for (i = 0; i < nonTaxLineFields.length; i += 1) {
+      try {
+        so.setCurrentSublistValue({
+          sublistId: "item",
+          fieldId: nonTaxLineFields[i].fieldId,
+          value: nonTaxLineFields[i].value
+        });
+      } catch (_e_line_tax) {}
+    }
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "taxcode",
+        value: -7
+      });
+    } catch (_e_taxcode) {}
+  }
+
+  function removeManagedSurchargeLines(so) {
+    var lineCount = getItemLineCount(so);
+    var removeLines = {};
+    var i;
+
+    for (i = 0; i < lineCount; i += 1) {
       if (!isSurchargeItemLine(so, i)) {
         continue;
       }
 
-      if (firstLine === -1) {
-        firstLine = i;
+      removeLines[i] = true;
+      if (i > 0 && isSubtotalItemLine(so, i - 1)) {
+        removeLines[i - 1] = true;
+      }
+    }
+
+    for (i = lineCount - 1; i >= 0; i -= 1) {
+      if (!removeLines[i]) {
         continue;
       }
 
@@ -481,17 +597,17 @@ define(["N/record", "N/log"], function (record, log) {
         ignoreRecalc: false
       });
     }
+  }
 
-    if (firstLine !== -1) {
-      so.selectLine({ sublistId: "item", line: firstLine });
-    } else {
-      so.selectNewLine({ sublistId: "item" });
-      so.setCurrentSublistValue({
-        sublistId: "item",
-        fieldId: "item",
-        value: SURCHARGE_ITEM_ID
-      });
-    }
+  function appendSurchargeLine(so, surchargeAmount) {
+    var normalizedAmount = round2(surchargeAmount);
+
+    so.selectNewLine({ sublistId: "item" });
+    so.setCurrentSublistValue({
+      sublistId: "item",
+      fieldId: "item",
+      value: SURCHARGE_ITEM_ID
+    });
 
     try {
       so.setCurrentSublistValue({
@@ -504,32 +620,121 @@ define(["N/record", "N/log"], function (record, log) {
     try {
       so.setCurrentSublistValue({
         sublistId: "item",
-        fieldId: "rate",
-        value: "2.0%"
+        fieldId: "price",
+        value: -1
       });
-    } catch (_e_rate) {
-      try {
-        so.setCurrentSublistValue({
-          sublistId: "item",
-          fieldId: "amount",
-          value: normalizedAmount
-        });
-      } catch (_e_amount) {}
-    }
+    } catch (_e_price) {}
 
     try {
       so.setCurrentSublistValue({
         sublistId: "item",
-        fieldId: "taxcode",
-        value: -7
+        fieldId: "rate",
+        value: normalizedAmount
       });
-    } catch (_e_taxcode) {}
+    } catch (_e_rate) {}
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "amount",
+        value: normalizedAmount
+      });
+    } catch (_e_amount) {}
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "description",
+        value: "Surcharge 2%"
+      });
+    } catch (_e_description) {}
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "custcol_rdt_surcharge_rate",
+        value: "2%"
+      });
+    } catch (_e_custom_rate) {}
+
+    if (normalizedAmount > 0) {
+      try {
+        so.setCurrentSublistValue({
+          sublistId: "item",
+          fieldId: "grossamt",
+          value: normalizedAmount
+        });
+      } catch (_e_gross_amount) {}
+    }
+
+    // Keep the surcharge outside the tax basis even if account-level taxcode
+    // behavior varies.
+    markCurrentLineNonTaxable(so);
 
     so.commitLine({
       sublistId: "item"
     });
 
     return normalizedAmount;
+  }
+
+  function appendSubtotalLine(so) {
+    so.selectNewLine({ sublistId: "item" });
+    so.setCurrentSublistValue({
+      sublistId: "item",
+      fieldId: "item",
+      value: SUBTOTAL_ITEM_ID
+    });
+    so.commitLine({
+      sublistId: "item"
+    });
+  }
+
+  function ensureSubtotalAndSurchargeLines(so, surchargeAmount) {
+    removeManagedSurchargeLines(so);
+    appendSubtotalLine(so);
+    return appendSurchargeLine(so, surchargeAmount);
+  }
+
+  function enforceCommittedSurchargeLinesNonTaxable(so) {
+    var count = getItemLineCount(so);
+    var fields = [
+      { fieldId: "taxcode", value: -7 },
+      { fieldId: "istaxable", value: false },
+      { fieldId: "taxable", value: false },
+      { fieldId: "taxrate1", value: 0 },
+      { fieldId: "tax1amt", value: 0 },
+      { fieldId: "custcol_ava_taxcodemapping", value: AVATAX_NON_TAXABLE_CODE },
+      { fieldId: "custcol_ava_taxamount", value: 0 }
+    ];
+    var i;
+    var j;
+
+    for (i = 0; i < count; i += 1) {
+      if (!isSurchargeItemLine(so, i)) {
+        continue;
+      }
+
+      try {
+        so.selectLine({ sublistId: "item", line: i });
+      } catch (_selectErr) {
+        continue;
+      }
+
+      for (j = 0; j < fields.length; j += 1) {
+        try {
+          so.setCurrentSublistValue({
+            sublistId: "item",
+            fieldId: fields[j].fieldId,
+            value: fields[j].value
+          });
+        } catch (_fieldErr) {}
+      }
+
+      try {
+        so.commitLine({ sublistId: "item" });
+      } catch (_commitErr) {}
+    }
   }
 
   function trySetValue(rec, fieldId, value, results) {
@@ -558,10 +763,11 @@ define(["N/record", "N/log"], function (record, log) {
     requestedTotals,
     taxOverrideResults
   ) {
-    var merchandiseSubtotal = asNumber(so.getValue({ fieldId: "subtotal" }));
+    var merchandiseSubtotal = getMerchandiseSubtotal(so);
     var surchargeAmount = round2(merchandiseSubtotal * SURCHARGE_RATE);
 
-    ensureSurchargeLine(so, surchargeAmount);
+    ensureSubtotalAndSurchargeLines(so, surchargeAmount);
+    enforceCommittedSurchargeLinesNonTaxable(so);
 
     so.setValue({ fieldId: "shipmethod", value: shipmethod });
     so.setValue({ fieldId: "shippingcost", value: amount });
@@ -709,17 +915,13 @@ define(["N/record", "N/log"], function (record, log) {
       // Check timestamp before and after to confirm if THIS is what triggers
       // the record change that causes RCRD_HAS_BEEN_CHANGED on save.
       diagLog("PRE_CALCULATE_TAX", { requestedTotals: requestedTotals });
-      calculateTaxResult = tryCalculateTax(so);
+      calculateTaxResult = skipCalculateTax(
+        "Skipped before save so AvaTax does not tax the Pacejet surcharge line."
+      );
       diagLog("POST_CALCULATE_TAX", { result: calculateTaxResult });
 
-      var afterTaxTimestamp = checkTimestampDrift(
-        orderId,
-        "AFTER_CALCULATE_TAX",
-        baselineTimestamp
-      );
-
       // ── DIAGNOSTIC STEP 4: If calculateTax drifted the record, skip it on retry ──
-      var calculateTaxCausedDrift = afterTaxTimestamp.drifted;
+      var calculateTaxCausedDrift = false;
 
       taxDetailsBeforeSave = getTaxDetailsSnapshot(so);
 
@@ -763,8 +965,10 @@ define(["N/record", "N/log"], function (record, log) {
             // ── DIAGNOSTIC: Only re-run calculateTax if it was NOT the cause ──
             // If calculateTax caused the drift, skip it entirely on retries.
             if (!calculateTaxCausedDrift) {
-              diagLog("RETRY_CALCULATE_TAX", { attempt: attempt });
-              calculateTaxResult = tryCalculateTax(so);
+              diagLog("RETRY_SKIPPED_CALCULATE_TAX", { attempt: attempt });
+              calculateTaxResult = skipCalculateTax(
+                "Skipped on retry so AvaTax does not tax the Pacejet surcharge line."
+              );
             } else {
               diagLog("RETRY_SKIPPED_CALCULATE_TAX", {
                 reason: "calculateTax caused timestamp drift on first attempt",

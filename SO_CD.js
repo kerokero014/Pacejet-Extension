@@ -63,8 +63,12 @@ define(["N/record", "N/log"], (record, log) => {
   }
 
   function readSalesOrderAmounts(soRec) {
-    var subtotal = num(soRec.getValue({ fieldId: "subtotal" }));
+    var adjustedSubtotal = num(soRec.getValue({ fieldId: "subtotal" }));
     var surcharge = getSurchargeAmountFromSO(soRec);
+    var subtotal =
+      surcharge > 0 && adjustedSubtotal >= surcharge
+        ? round2(adjustedSubtotal - surcharge)
+        : adjustedSubtotal;
     var shipping = num(soRec.getValue({ fieldId: "shippingcost" }));
     var tax = num(soRec.getValue({ fieldId: "taxtotal" }));
     var total = num(soRec.getValue({ fieldId: "total" }));
@@ -73,6 +77,7 @@ define(["N/record", "N/log"], (record, log) => {
 
     return {
       subtotal: round2(subtotal),
+      adjustedSubtotal: round2(adjustedSubtotal),
       surcharge: surcharge,
       shipping: round2(shipping),
       tax: round2(tax),
