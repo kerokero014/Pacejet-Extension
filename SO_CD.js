@@ -168,7 +168,9 @@ define(["N/record", "N/log"], (record, log) => {
       return {
         mode: "card",
         depositAmount: soTotal,
-        split: split
+        split: split,
+        correctedFromCardPortion:
+          split.cardPortion > 0 && Math.abs(split.cardPortion - soTotal) >= 0.01
       };
     }
 

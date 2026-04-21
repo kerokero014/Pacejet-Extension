@@ -206,6 +206,8 @@ define("RDT.Pacejet.V2", [
     var adjustedSubtotal;
     var surcharge;
     var baseSubtotal;
+    var responseTax;
+    var responseTotal;
 
     if (!snapshot) {
       return null;
@@ -229,6 +231,16 @@ define("RDT.Pacejet.V2", [
         : adjustedSubtotal,
       adjustedSubtotal
     ).toFixed(2);
+    responseTax =
+      responseTotals.tax !== undefined && responseTotals.tax !== null
+        ? responseTotals.tax
+        : responseTotals.taxtotal !== undefined && responseTotals.taxtotal !== null
+        ? responseTotals.taxtotal
+        : null;
+    responseTotal =
+      responseTotals.total !== undefined && responseTotals.total !== null
+        ? responseTotals.total
+        : null;
 
     return {
       subtotal: baseSubtotal,
@@ -236,8 +248,11 @@ define("RDT.Pacejet.V2", [
       adjustedSubtotal: adjustedSubtotal,
       surcharge: surcharge,
       shipping: +asNumber(snapshot.shippingcost, snapshot.shipping).toFixed(2),
-      tax: +asNumber(snapshot.taxtotal, snapshot.tax).toFixed(2),
-      total: +asNumber(snapshot.total, 0).toFixed(2)
+      tax: +asNumber(
+        responseTax !== null ? responseTax : snapshot.taxtotal,
+        snapshot.tax
+      ).toFixed(2),
+      total: +asNumber(responseTotal !== null ? responseTotal : snapshot.total, 0).toFixed(2)
     };
   }
 
@@ -266,6 +281,15 @@ define("RDT.Pacejet.V2", [
       summaryData && typeof summaryData === "object"
         ? getSummaryValue(summaryData, ["total", "totalAmount", "totalamount"])
         : null;
+    if (asNumber(summarySubtotal, 0) <= 0) {
+      summarySubtotal = null;
+    }
+    if (asNumber(summaryTax, 0) <= 0) {
+      summaryTax = null;
+    }
+    if (asNumber(summaryTotal, 0) <= 0) {
+      summaryTotal = null;
+    }
     var subtotal = asNumber(
       summarySubtotal !== null
         ? summarySubtotal
@@ -379,6 +403,25 @@ define("RDT.Pacejet.V2", [
       PacejetSummary && PacejetSummary.getSummary
         ? PacejetSummary.getSummary(order)
         : null;
+    if (persistence && persistence.saved && persistence.totals) {
+      var persistedSubtotal = asNumber(persistence.totals.subtotal, 0);
+      var persistedShipping = asNumber(persistence.totals.shipping, 0);
+      var persistedTax = asNumber(persistence.totals.tax, 0);
+      var persistedSurcharge = +(persistedSubtotal * 0.02).toFixed(2);
+      renderedSummary = {
+        subtotal: persistedSubtotal,
+        baseSubtotal: persistedSubtotal,
+        surcharge: persistedSurcharge,
+        shipping: persistedShipping,
+        tax: persistedTax,
+        total: +(
+          persistedSubtotal +
+          persistedSurcharge +
+          persistedShipping +
+          persistedTax
+        ).toFixed(2)
+      };
+    }
     var pacejetAmount = getCustomFieldValue(
       order,
       "custbody_rdt_pacejet_amount"

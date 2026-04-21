@@ -119,22 +119,149 @@ define(["N/record", "N/log"], function (record, log) {
 
   function chooseResponseTotals(finalSnapshot, requestedTotals, amount) {
     var snapshotTotals = buildTotalsFromSnapshot(finalSnapshot);
+    var surcharge = round2(snapshotTotals.surcharge);
     if (
       requestedTotals &&
       almostEqual(snapshotTotals.subtotal, requestedTotals.subtotal) &&
       almostEqual(snapshotTotals.shipping, amount) &&
-      almostEqual(requestedTotals.shipping, amount) &&
-      almostEqual(snapshotTotals.tax, requestedTotals.tax) &&
-      almostEqual(snapshotTotals.total, requestedTotals.total)
+      almostEqual(requestedTotals.shipping, amount)
     ) {
+      surcharge = round2(requestedTotals.subtotal * SURCHARGE_RATE);
       return {
+        baseSubtotal: requestedTotals.subtotal,
         subtotal: requestedTotals.subtotal,
+        adjustedSubtotal: round2(requestedTotals.subtotal + surcharge),
+        surcharge: surcharge,
         shipping: requestedTotals.shipping,
         tax: requestedTotals.tax,
         total: requestedTotals.total
       };
     }
     return snapshotTotals;
+  }
+
+  function sanitizeRequestedTotals(requestedTotals, merchandiseSubtotal, amount) {
+    if (!requestedTotals) {
+      return null;
+    }
+
+    if (
+      requestedTotals.subtotal <= 0 ||
+      requestedTotals.tax <= 0 ||
+      requestedTotals.total <= 0
+    ) {
+      return null;
+    }
+
+    if (Math.abs(requestedTotals.subtotal - merchandiseSubtotal) >= 0.01) {
+      return null;
+    }
+
+    if (Math.abs(requestedTotals.shipping - amount) >= 0.01) {
+      return null;
+    }
+
+    return requestedTotals;
+  }
+
+  function shouldCompensateTaxedSurcharge(finalSnapshot, requestedTotals, amount) {
+    var snapshotTotals;
+    var expectedSurcharge;
+    var extraTax;
+    var totalDrift;
+
+    if (!requestedTotals) {
+      return false;
+    }
+
+    snapshotTotals = buildTotalsFromSnapshot(finalSnapshot);
+    expectedSurcharge = round2(requestedTotals.subtotal * SURCHARGE_RATE);
+    extraTax = round2(snapshotTotals.tax - requestedTotals.tax);
+    totalDrift = round2(snapshotTotals.total - requestedTotals.total);
+
+    return (
+      expectedSurcharge > 0 &&
+      extraTax > 0 &&
+      totalDrift > 0 &&
+      almostEqual(snapshotTotals.subtotal, requestedTotals.subtotal) &&
+      almostEqual(snapshotTotals.shipping, amount) &&
+      almostEqual(snapshotTotals.surcharge, expectedSurcharge) &&
+      almostEqual(extraTax, totalDrift)
+    );
+  }
+
+  function compensateTaxedSurcharge(rec, requestedTotals) {
+    var expectedSurcharge = round2(requestedTotals.subtotal * SURCHARGE_RATE);
+    var snapshotTotals = buildTotalsFromSnapshot(buildSnapshot(rec));
+    var extraTax = round2(snapshotTotals.tax - requestedTotals.tax);
+    var effectiveRate =
+      expectedSurcharge > 0 ? extraTax / expectedSurcharge : 0;
+    var compensatedAmount;
+    var count;
+    var i;
+
+    if (expectedSurcharge <= 0 || extraTax <= 0 || effectiveRate <= 0) {
+      return {
+        attempted: false,
+        reason: "No positive surcharge tax drift to compensate."
+      };
+    }
+
+    compensatedAmount = round2(expectedSurcharge / (1 + effectiveRate));
+    count = getItemLineCount(rec);
+
+    for (i = 0; i < count; i += 1) {
+      if (!isSurchargeItemLine(rec, i)) {
+        continue;
+      }
+
+      rec.selectLine({ sublistId: "item", line: i });
+
+      try {
+        rec.setCurrentSublistValue({
+          sublistId: "item",
+          fieldId: "price",
+          value: -1
+        });
+      } catch (_e_price) {}
+
+      rec.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "rate",
+        value: compensatedAmount
+      });
+      rec.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "amount",
+        value: compensatedAmount
+      });
+
+      try {
+        rec.setCurrentSublistValue({
+          sublistId: "item",
+          fieldId: "description",
+          value: "Surcharge 2%"
+        });
+      } catch (_e_description) {}
+
+      markCurrentLineNonTaxable(rec);
+      rec.commitLine({ sublistId: "item" });
+
+      return {
+        attempted: true,
+        adjusted: true,
+        expectedSurcharge: expectedSurcharge,
+        extraTax: extraTax,
+        effectiveRate: round2(effectiveRate * 100),
+        compensatedAmount: compensatedAmount
+      };
+    }
+
+    return {
+      attempted: true,
+      adjusted: false,
+      reason: "No surcharge item line found."
+    };
   }
 
   function getSublistValueSafe(rec, sublistId, fieldId, line) {
@@ -657,16 +784,6 @@ define(["N/record", "N/log"], function (record, log) {
       });
     } catch (_e_custom_rate) {}
 
-    if (normalizedAmount > 0) {
-      try {
-        so.setCurrentSublistValue({
-          sublistId: "item",
-          fieldId: "grossamt",
-          value: normalizedAmount
-        });
-      } catch (_e_gross_amount) {}
-    }
-
     // Keep the surcharge outside the tax basis even if account-level taxcode
     // behavior varies.
     markCurrentLineNonTaxable(so);
@@ -748,6 +865,18 @@ define(["N/record", "N/log"], function (record, log) {
     }
   }
 
+  function applyTaxOverride(rec, requestedTotals, results) {
+    if (!requestedTotals) {
+      return false;
+    }
+
+    trySetValue(rec, "taxdetailsoverride", true, results);
+    trySetValue(rec, "taxtotaloverride", requestedTotals.tax, results);
+    trySetValue(rec, "taxamountoverride", requestedTotals.tax, results);
+
+    return true;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // applyFieldsToRecord
   // Extracted so the same field-setting logic can be reused on retry without
@@ -808,21 +937,7 @@ define(["N/record", "N/log"], function (record, log) {
       so.setValue({ fieldId: "taxdetailsoverride", value: false });
     } catch (_ignore) {}
 
-    if (requestedTotals) {
-      trySetValue(so, "taxdetailsoverride", true, taxOverrideResults);
-      trySetValue(
-        so,
-        "taxtotaloverride",
-        requestedTotals.tax,
-        taxOverrideResults
-      );
-      trySetValue(
-        so,
-        "taxamountoverride",
-        requestedTotals.tax,
-        taxOverrideResults
-      );
-    }
+    applyTaxOverride(so, requestedTotals, taxOverrideResults);
   }
 
   function onRequest(context) {
@@ -856,6 +971,7 @@ define(["N/record", "N/log"], function (record, log) {
     var taxDetailsBeforeSave = null;
     var taxDetailsAfterSave = null;
     var taxFieldSnapshot = null;
+    var surchargeTaxCompensation = null;
     var locationSetResults = {};
 
     if (!/^\d+$/.test(orderId)) {
@@ -887,11 +1003,19 @@ define(["N/record", "N/log"], function (record, log) {
         id: orderId,
         isDynamic: true
       });
+      var initialMerchandiseSubtotal = getMerchandiseSubtotal(so);
+      requestedTotals = sanitizeRequestedTotals(
+        requestedTotals,
+        initialMerchandiseSubtotal,
+        amount
+      );
 
       var baselineTimestamp = getRecordTimestamp(orderId);
       diagLog("LOAD", {
         orderId: orderId,
-        timestamp: baselineTimestamp
+        timestamp: baselineTimestamp,
+        initialMerchandiseSubtotal: initialMerchandiseSubtotal,
+        sanitizedRequestedTotals: requestedTotals
       });
 
       log.audit("Pacejet test apply - before", buildSnapshot(so));
@@ -1029,6 +1153,57 @@ define(["N/record", "N/log"], function (record, log) {
         );
       }
 
+      if (requestedTotals) {
+        try {
+          record.submitFields({
+            type: record.Type.SALES_ORDER,
+            id: savedId,
+            values: {
+              taxdetailsoverride: true,
+              taxtotaloverride: requestedTotals.tax,
+              taxamountoverride: requestedTotals.tax
+            },
+            options: {
+              enableSourcing: false,
+              ignoreMandatoryFields: true
+            }
+          });
+          taxOverrideResults.postSaveSubmitFields = requestedTotals.tax;
+          diagLog("POST_SAVE_TAX_OVERRIDE_SUCCESS", {
+            savedId: savedId,
+            requestedTax: requestedTotals.tax
+          });
+        } catch (submitFieldsError) {
+          diagLog("POST_SAVE_TAX_OVERRIDE_SUBMIT_FIELDS_FAILED", {
+            errorName: submitFieldsError.name,
+            errorMessage: submitFieldsError.message || String(submitFieldsError),
+            requestedTax: requestedTotals.tax
+          });
+          try {
+            var overrideReload = record.load({
+              type: record.Type.SALES_ORDER,
+              id: savedId,
+              isDynamic: true
+            });
+            applyTaxOverride(overrideReload, requestedTotals, taxOverrideResults);
+            savedId = overrideReload.save({
+              enableSourcing: false,
+              ignoreMandatoryFields: true
+            });
+            diagLog("POST_SAVE_TAX_OVERRIDE_RELOAD_SUCCESS", {
+              savedId: savedId,
+              requestedTax: requestedTotals.tax
+            });
+          } catch (overrideError) {
+            diagLog("POST_SAVE_TAX_OVERRIDE_FAILED", {
+              errorName: overrideError.name,
+              errorMessage: overrideError.message || String(overrideError),
+              requestedTax: requestedTotals.tax
+            });
+          }
+        }
+      }
+
       // ── Post-save: reload to confirm final state ──
       var reloaded = record.load({
         type: record.Type.SALES_ORDER,
@@ -1037,6 +1212,46 @@ define(["N/record", "N/log"], function (record, log) {
       });
 
       var finalSnapshot = buildSnapshot(reloaded);
+      if (shouldCompensateTaxedSurcharge(finalSnapshot, requestedTotals, amount)) {
+        try {
+          var compensationReload = record.load({
+            type: record.Type.SALES_ORDER,
+            id: savedId,
+            isDynamic: true
+          });
+          surchargeTaxCompensation = compensateTaxedSurcharge(
+            compensationReload,
+            requestedTotals
+          );
+          savedId = compensationReload.save({
+            enableSourcing: true,
+            ignoreMandatoryFields: true
+          });
+          diagLog("SURCHARGE_TAX_COMPENSATION_SUCCESS", {
+            savedId: savedId,
+            result: surchargeTaxCompensation
+          });
+          reloaded = record.load({
+            type: record.Type.SALES_ORDER,
+            id: savedId,
+            isDynamic: false
+          });
+          finalSnapshot = buildSnapshot(reloaded);
+        } catch (compensationError) {
+          surchargeTaxCompensation = {
+            attempted: true,
+            adjusted: false,
+            errorName: compensationError.name,
+            errorMessage: compensationError.message || String(compensationError)
+          };
+          diagLog("SURCHARGE_TAX_COMPENSATION_FAILED", surchargeTaxCompensation);
+        }
+      } else {
+        surchargeTaxCompensation = {
+          attempted: false,
+          reason: "Saved Sales Order did not match taxed-surcharge drift pattern."
+        };
+      }
       taxFieldSnapshot = buildTaxFieldSnapshot(reloaded);
       taxDetailsAfterSave = getTaxDetailsSnapshot(reloaded);
       var responseTotals = chooseResponseTotals(
@@ -1068,6 +1283,7 @@ define(["N/record", "N/log"], function (record, log) {
         responseTotals: responseTotals,
         requestedTotals: requestedTotals,
         taxOverrideResults: taxOverrideResults,
+        surchargeTaxCompensation: surchargeTaxCompensation,
         taxDiagnostics: taxDiagnostics,
         retriesUsed: attempt,
         calculateTaxCausedDrift: calculateTaxCausedDrift,
@@ -1082,6 +1298,7 @@ define(["N/record", "N/log"], function (record, log) {
         totals: responseTotals,
         snapshot: finalSnapshot,
         taxDiagnostics: taxDiagnostics,
+        surchargeTaxCompensation: surchargeTaxCompensation,
         // ── Included in response so you can see retry/drift info live ──
         _debug: {
           retriesUsed: attempt,

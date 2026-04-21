@@ -772,7 +772,7 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     MIXED_TO_SPRINGVILLE: "MIXED_TO_SPRINGVILLE",
     OVER_DRUM_THRESHOLD: "OVER_DRUM_THRESHOLD",
     OVER_PAIL_THRESHOLD: "OVER_PAIL_THRESHOLD",
-    NEAREST_3PL: "NEAREST_3PL",
+    NEAREST_ORIGIN: "NEAREST_ORIGIN",
     DEFAULT: "DEFAULT"
   };
 
@@ -780,24 +780,155 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     SPRINGVILLE: "62",
     ILLINOIS: "61",
     DELAWARE: "63",
-    GEORGIA: "64"
+    GEORGIA: "64",
+    TEXAS: "66"
   };
 
-  var DEST_STATE_TO_3PL_PRIORITY = {
-    IL: [LOCATION_IDS.ILLINOIS, LOCATION_IDS.DELAWARE, LOCATION_IDS.GEORGIA],
-    WI: [LOCATION_IDS.ILLINOIS, LOCATION_IDS.DELAWARE, LOCATION_IDS.GEORGIA],
-    IN: [LOCATION_IDS.ILLINOIS, LOCATION_IDS.DELAWARE, LOCATION_IDS.GEORGIA],
-    MI: [LOCATION_IDS.ILLINOIS, LOCATION_IDS.DELAWARE, LOCATION_IDS.GEORGIA],
-    FL: [LOCATION_IDS.GEORGIA, LOCATION_IDS.DELAWARE, LOCATION_IDS.ILLINOIS],
-    GA: [LOCATION_IDS.GEORGIA, LOCATION_IDS.DELAWARE, LOCATION_IDS.ILLINOIS],
-    SC: [LOCATION_IDS.GEORGIA, LOCATION_IDS.DELAWARE, LOCATION_IDS.ILLINOIS],
-    NC: [LOCATION_IDS.GEORGIA, LOCATION_IDS.DELAWARE, LOCATION_IDS.ILLINOIS],
-    AL: [LOCATION_IDS.GEORGIA, LOCATION_IDS.DELAWARE, LOCATION_IDS.ILLINOIS],
-    TN: [LOCATION_IDS.GEORGIA, LOCATION_IDS.DELAWARE, LOCATION_IDS.ILLINOIS],
-    DE: [LOCATION_IDS.DELAWARE, LOCATION_IDS.ILLINOIS, LOCATION_IDS.GEORGIA],
-    NJ: [LOCATION_IDS.DELAWARE, LOCATION_IDS.ILLINOIS, LOCATION_IDS.GEORGIA],
-    PA: [LOCATION_IDS.DELAWARE, LOCATION_IDS.ILLINOIS, LOCATION_IDS.GEORGIA],
-    MD: [LOCATION_IDS.DELAWARE, LOCATION_IDS.ILLINOIS, LOCATION_IDS.GEORGIA]
+  var DEST_STATE_TO_ORIGIN_PRIORITY = {
+    CA: [
+      LOCATION_IDS.SPRINGVILLE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.DELAWARE
+    ],
+    NV: [
+      LOCATION_IDS.SPRINGVILLE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.DELAWARE
+    ],
+    AZ: [
+      LOCATION_IDS.SPRINGVILLE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.DELAWARE
+    ],
+    UT: [
+      LOCATION_IDS.SPRINGVILLE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.DELAWARE
+    ],
+    CO: [
+      LOCATION_IDS.SPRINGVILLE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.DELAWARE
+    ],
+
+    TX: [
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.SPRINGVILLE,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.DELAWARE
+    ],
+
+    IL: [
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.SPRINGVILLE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.GEORGIA
+    ],
+    WI: [
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.SPRINGVILLE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.GEORGIA
+    ],
+    IN: [
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.SPRINGVILLE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.GEORGIA
+    ],
+    MI: [
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.SPRINGVILLE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.GEORGIA
+    ],
+
+    FL: [
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.SPRINGVILLE
+    ],
+    GA: [
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.SPRINGVILLE
+    ],
+    SC: [
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.SPRINGVILLE
+    ],
+    NC: [
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.SPRINGVILLE
+    ],
+    AL: [
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.SPRINGVILLE
+    ],
+    TN: [
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.SPRINGVILLE
+    ],
+
+    DE: [
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.SPRINGVILLE
+    ],
+    NJ: [
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.SPRINGVILLE
+    ],
+    PA: [
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.SPRINGVILLE
+    ],
+    MD: [
+      LOCATION_IDS.DELAWARE,
+      LOCATION_IDS.ILLINOIS,
+      LOCATION_IDS.GEORGIA,
+      LOCATION_IDS.TEXAS,
+      LOCATION_IDS.SPRINGVILLE
+    ]
   };
 
   function safeUpper(value) {
@@ -848,6 +979,53 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     return (
       !!value && typeof value === "object" && Object.keys(value).length > 0
     );
+  }
+
+  function getEligibleLocationsForWholeOrder(items) {
+    var intersection = null;
+
+    (items || []).forEach(function (item) {
+      var candidates = getAvailableLocationIdsForItem(item);
+      var lookup = {};
+      var next = [];
+
+      candidates.forEach(function (id) {
+        lookup[String(id)] = true;
+      });
+
+      if (intersection === null) {
+        intersection = candidates.slice();
+        return;
+      }
+
+      intersection.forEach(function (id) {
+        if (lookup[String(id)]) {
+          next.push(String(id));
+        }
+      });
+
+      intersection = next;
+
+      //  ---- debuggg ------
+      log.audit("Eligible Locations Intersection", {
+        result: intersection
+      });
+    });
+
+    return intersection || [];
+  }
+
+  function chooseNearestOrigin(destinationState, eligibleLocationIds) {
+    var candidates = normalizeLocationIdArray(eligibleLocationIds);
+    var preferred = DEST_STATE_TO_ORIGIN_PRIORITY[destinationState] || [];
+
+    for (var i = 0; i < preferred.length; i++) {
+      if (candidates.indexOf(preferred[i]) !== -1) {
+        return preferred[i];
+      }
+    }
+
+    return candidates.length ? candidates[0] : "";
   }
 
   function getSublistValueFromCandidates(rec, sublistId, fieldIds, line) {
@@ -1421,19 +1599,6 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     return hasSpringville && has3pl && !eligible3pls.length;
   }
 
-  function chooseNearest3pl(destinationState, eligibleLocationIds) {
-    var candidates = normalizeLocationIdArray(eligibleLocationIds);
-    var preferred = DEST_STATE_TO_3PL_PRIORITY[destinationState] || [];
-
-    for (var i = 0; i < preferred.length; i += 1) {
-      if (candidates.indexOf(preferred[i]) !== -1) {
-        return preferred[i];
-      }
-    }
-
-    return candidates.length ? candidates[0] : "";
-  }
-
   function buildDefaultOriginPlan(debug) {
     return {
       mode: "per-item-origin",
@@ -1464,6 +1629,7 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     var items = getCartItems(body);
     var destinationState = getDestinationState(body);
     var packaging = countPackaging(items);
+
     var hasDropShipItems = (items || []).some(function (item) {
       return !!(
         item &&
@@ -1473,10 +1639,17 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
           item.dropShip === "T")
       );
     });
+
     var explicitAvailability = allItemsHaveExplicitAvailability(items);
+
+    var eligibleLocations = explicitAvailability
+      ? getEligibleLocationsForWholeOrder(items)
+      : [];
+
     var eligible3pls = explicitAvailability
       ? getEligible3plsForWholeOrder(items)
       : [];
+
     var mixedSpringville3pl = explicitAvailability
       ? detectMixedSpringvilleAnd3pl(items)
       : false;
@@ -1484,13 +1657,16 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     var debug = {
       destinationState: destinationState,
       itemsCount: items.length,
-      explicitAvailability: explicitAvailability,
       hasDropShipItems: hasDropShipItems,
+      explicitAvailability: explicitAvailability,
       drums: packaging.drums,
       pails: packaging.pails,
+      eligibleLocations: eligibleLocations,
       eligible3pls: eligible3pls,
       mixedSpringville3pl: mixedSpringville3pl
     };
+
+    log.audit("Origin Plan Debug Snapshot", debug);
 
     if (!items.length) {
       return buildDefaultOriginPlan(debug);
@@ -1500,35 +1676,10 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
       return buildDefaultOriginPlan(debug);
     }
 
-    // No explicit warehouse availability for all items:
-    // do NOT force a rule; fall back to your current origin logic.
     if (!explicitAvailability) {
       return buildDefaultOriginPlan(debug);
     }
 
-    // 1) Florida rule
-    if (destinationState === "FL") {
-      if (allItemsAvailableAt(items, LOCATION_IDS.GEORGIA)) {
-        return buildForcedSingleOriginPlan(
-          LOCATION_IDS.GEORGIA,
-          ORIGIN_RULES.FL_GEORGIA,
-          debug
-        );
-      }
-
-      if (
-        !allItemsAvailableAt(items, LOCATION_IDS.GEORGIA) &&
-        allItemsAvailableAt(items, LOCATION_IDS.DELAWARE)
-      ) {
-        return buildForcedSingleOriginPlan(
-          LOCATION_IDS.DELAWARE,
-          ORIGIN_RULES.FL_DELAWARE,
-          debug
-        );
-      }
-    }
-
-    // 2) Mixed 3PL + Springville => Springville
     if (mixedSpringville3pl) {
       return buildForcedSingleOriginPlan(
         LOCATION_IDS.SPRINGVILLE,
@@ -1537,7 +1688,6 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
       );
     }
 
-    // 3) All items in 3PL but over drum threshold => Springville
     if (allItemsHaveAny3pl(items) && packaging.drums > 20) {
       return buildForcedSingleOriginPlan(
         LOCATION_IDS.SPRINGVILLE,
@@ -1546,7 +1696,6 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
       );
     }
 
-    // 4) All items in 3PL but over pail threshold => Springville
     if (allItemsHaveAny3pl(items) && packaging.pails > 32) {
       return buildForcedSingleOriginPlan(
         LOCATION_IDS.SPRINGVILLE,
@@ -1555,16 +1704,20 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
       );
     }
 
-    // 5) All items available from one common 3PL => nearest eligible 3PL
-    if (eligible3pls.length) {
-      var chosen3pl = chooseNearest3pl(destinationState, eligible3pls);
-      if (chosen3pl) {
-        return buildForcedSingleOriginPlan(
-          chosen3pl,
-          ORIGIN_RULES.NEAREST_3PL,
-          debug
-        );
-      }
+    if (eligibleLocations.length) {
+      var chosen = chooseNearestOrigin(destinationState, eligibleLocations);
+
+      log.audit("Chosen origin (NEW LOGIC)", {
+        destinationState: destinationState,
+        eligibleLocations: eligibleLocations,
+        chosen: chosen
+      });
+
+      return buildForcedSingleOriginPlan(
+        chosen,
+        ORIGIN_RULES.NEAREST_ORIGIN,
+        debug
+      );
     }
 
     return buildDefaultOriginPlan(debug);
