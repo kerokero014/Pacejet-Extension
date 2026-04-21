@@ -69,6 +69,15 @@ define("RDT.Pacejet.Summary", [
     );
   }
 
+  function isPersistencePending() {
+    var state =
+      PacejetState && typeof PacejetState.get === "function"
+        ? PacejetState.get()
+        : null;
+
+    return !!(state && state.flags && state.flags.persistencePending);
+  }
+
   // --------------------------------------------
   // Read helpers
   // --------------------------------------------
@@ -1011,6 +1020,120 @@ define("RDT.Pacejet.Summary", [
     return 1;
   }
 
+  function clearSummaryLoadingState($container) {
+    $container = $container && $container.length ? $container : getSummaryContainer();
+    if (!$container.length) return;
+
+    $container
+      .find(".rdt-pj-summary-loading-row, .rdt-pj-confirmation-summary-loading")
+      .remove();
+    $container
+      .find(".rdt-pj-summary-native-tax-loading")
+      .removeClass("rdt-pj-summary-native-tax-loading")
+      .show();
+  }
+
+  function getSummaryLoadingMarkup(message, confirmation) {
+    return (
+      '<p class="order-wizard-cart-summary-grid-float rdt-pj-summary-loading-row' +
+      (confirmation ? " rdt-pj-confirmation-summary-loading" : "") +
+      '" aria-live="polite">' +
+      '<span class="order-wizard-cart-summary-grid-right rdt-pj-summary-loading-indicator">' +
+      '<span class="rdt-pj-summary-loading-dot"></span>' +
+      '<span class="rdt-pj-summary-loading-dot"></span>' +
+      '<span class="rdt-pj-summary-loading-dot"></span>' +
+      "</span>" +
+      '<span class="order-wizard-cart-summary-grid-left rdt-pj-summary-loading-label">' +
+      message +
+      "</span>" +
+      "</p>"
+    );
+  }
+
+  function ensureCheckoutSummaryLoadingState() {
+    var $container = getSummaryContainer();
+    var $row;
+    var $nativeTaxRows;
+    var $shippingBlock;
+    var $totalBlock;
+
+    if (!$container.length) return false;
+
+    $nativeTaxRows = $container
+      .find(
+        ".order-wizard-cart-summary-tax, " +
+          ".order-wizard-cart-summary-tax-total, " +
+          ".order-wizard-cart-summary-taxes, " +
+          ".order-wizard-cart-summary-estimated-tax, " +
+          ".rdt-pj-tax-row"
+      )
+      .closest("p, tr, li, .order-wizard-cart-summary-grid, .order-wizard-cart-summary-row");
+
+    $nativeTaxRows
+      .addClass("rdt-pj-summary-native-tax-loading")
+      .hide();
+
+    $row = $container.find(".rdt-pj-summary-loading-row").first();
+    if (!$row.length) {
+      $shippingBlock = $container.find(
+        ".order-wizard-cart-summary-shipping, " +
+          ".order-wizard-cart-summary-shipping-cost-applied"
+      );
+      $totalBlock = $container.find(".order-wizard-cart-summary-total");
+
+      if ($shippingBlock.length) {
+        $shippingBlock.first().after(getSummaryLoadingMarkup("Recalculating Tax", false));
+      } else if ($totalBlock.length) {
+        $totalBlock.first().before(getSummaryLoadingMarkup("Recalculating Tax", false));
+      } else {
+        $container.append(getSummaryLoadingMarkup("Recalculating Tax", false));
+      }
+    }
+
+    return true;
+  }
+
+  function ensureConfirmationSummaryLoadingState() {
+    var $container = getSummaryContainer();
+    var selectorsToHide = [
+      ".order-wizard-cart-summary-body > .order-wizard-cart-summary-subtotal",
+      ".order-wizard-cart-summary-subtotal",
+      ".order-wizard-cart-summary-shipping-cost-applied",
+      ".order-wizard-cart-summary-shipping",
+      ".order-wizard-cart-summary-tax",
+      ".order-wizard-cart-summary-tax-total",
+      ".order-wizard-cart-summary-taxes",
+      ".order-wizard-cart-summary-estimated-tax",
+      ".order-wizard-cart-summary-total",
+      ".rdt-pj-tax-row"
+    ];
+    var $custom;
+
+    if (!$container.length) return false;
+
+    $container.find(selectorsToHide.join(", ")).hide();
+    $container
+      .find(
+        ".order-wizard-cart-summary-subtotal-text, " +
+          ".order-wizard-cart-summary-subtotal-legend, " +
+          ".order-wizard-cart-summary-shipping-cost-applied p, " +
+          ".order-wizard-cart-summary-total p"
+      )
+      .hide();
+
+    $custom = $container.find(".rdt-pj-confirmation-summary");
+    if (!$custom.length) {
+      $custom = $('<div class="rdt-pj-confirmation-summary"></div>');
+      $container.append($custom);
+    }
+
+    $custom
+      .empty()
+      .append(getSummaryLoadingMarkup("Finalizing order totals", true));
+
+    return true;
+  }
+
   function ensureCheckoutTaxRow(data) {
     if (!data) return;
     if (isConfirmationPage()) return;
@@ -1134,6 +1257,17 @@ define("RDT.Pacejet.Summary", [
 
   function paintSummary(data) {
     if (!data) return;
+
+    if (isPersistencePending()) {
+      if (isConfirmationPage()) {
+        ensureConfirmationSummaryLoadingState();
+      } else {
+        ensureCheckoutSummaryLoadingState();
+      }
+      return;
+    }
+
+    clearSummaryLoadingState();
 
     if (isConfirmationPage()) {
       ensureConfirmationSummary(data);

@@ -25,6 +25,43 @@
 	color: #111827;
 }
 
+.rdt-pj-summary-loading-row {
+	color: #374151;
+}
+
+.rdt-pj-summary-loading-label {
+	font-weight: 600;
+}
+
+.rdt-pj-summary-loading-indicator {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 4px;
+	min-width: 36px;
+	padding-top: 4px;
+}
+
+.rdt-pj-summary-loading-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 999px;
+	background: #2563eb;
+	animation: rdt-pj-summary-dot 1s ease-in-out infinite;
+}
+
+.rdt-pj-summary-loading-dot:nth-child(2) {
+	animation-delay: .14s;
+}
+
+.rdt-pj-summary-loading-dot:nth-child(3) {
+	animation-delay: .28s;
+}
+
+.rdt-pj-confirmation-summary-loading {
+	margin-top: 4px;
+}
+
 /* ============================================
    Shipping Rates Button
    ============================================ */
@@ -816,6 +853,21 @@ body.rdt-pj-prehide .order-wizard-shipmethod-module .rdt-pj-wrapper * {
 
 	100% {
 		opacity: 0;
+	}
+}
+
+@keyframes rdt-pj-summary-dot {
+
+	0%,
+	80%,
+	100% {
+		opacity: .35;
+		transform: translateY(0);
+	}
+
+	40% {
+		opacity: 1;
+		transform: translateY(-2px);
 	}
 }
 

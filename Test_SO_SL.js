@@ -124,7 +124,9 @@ define(["N/record", "N/log"], function (record, log) {
       requestedTotals &&
       almostEqual(snapshotTotals.subtotal, requestedTotals.subtotal) &&
       almostEqual(snapshotTotals.shipping, amount) &&
-      almostEqual(requestedTotals.shipping, amount)
+      almostEqual(requestedTotals.shipping, amount) &&
+      almostEqual(snapshotTotals.tax, requestedTotals.tax) &&
+      almostEqual(snapshotTotals.total, requestedTotals.total)
     ) {
       surcharge = round2(requestedTotals.subtotal * SURCHARGE_RATE);
       return {
@@ -188,80 +190,6 @@ define(["N/record", "N/log"], function (record, log) {
       almostEqual(snapshotTotals.surcharge, expectedSurcharge) &&
       almostEqual(extraTax, totalDrift)
     );
-  }
-
-  function compensateTaxedSurcharge(rec, requestedTotals) {
-    var expectedSurcharge = round2(requestedTotals.subtotal * SURCHARGE_RATE);
-    var snapshotTotals = buildTotalsFromSnapshot(buildSnapshot(rec));
-    var extraTax = round2(snapshotTotals.tax - requestedTotals.tax);
-    var effectiveRate =
-      expectedSurcharge > 0 ? extraTax / expectedSurcharge : 0;
-    var compensatedAmount;
-    var count;
-    var i;
-
-    if (expectedSurcharge <= 0 || extraTax <= 0 || effectiveRate <= 0) {
-      return {
-        attempted: false,
-        reason: "No positive surcharge tax drift to compensate."
-      };
-    }
-
-    compensatedAmount = round2(expectedSurcharge / (1 + effectiveRate));
-    count = getItemLineCount(rec);
-
-    for (i = 0; i < count; i += 1) {
-      if (!isSurchargeItemLine(rec, i)) {
-        continue;
-      }
-
-      rec.selectLine({ sublistId: "item", line: i });
-
-      try {
-        rec.setCurrentSublistValue({
-          sublistId: "item",
-          fieldId: "price",
-          value: -1
-        });
-      } catch (_e_price) {}
-
-      rec.setCurrentSublistValue({
-        sublistId: "item",
-        fieldId: "rate",
-        value: compensatedAmount
-      });
-      rec.setCurrentSublistValue({
-        sublistId: "item",
-        fieldId: "amount",
-        value: compensatedAmount
-      });
-
-      try {
-        rec.setCurrentSublistValue({
-          sublistId: "item",
-          fieldId: "description",
-          value: "Surcharge 2%"
-        });
-      } catch (_e_description) {}
-
-      markCurrentLineNonTaxable(rec);
-      rec.commitLine({ sublistId: "item" });
-
-      return {
-        attempted: true,
-        adjusted: true,
-        expectedSurcharge: expectedSurcharge,
-        extraTax: extraTax,
-        effectiveRate: round2(effectiveRate * 100),
-        compensatedAmount: compensatedAmount
-      };
-    }
-
-    return {
-      attempted: true,
-      adjusted: false,
-      reason: "No surcharge item line found."
-    };
   }
 
   function getSublistValueSafe(rec, sublistId, fieldId, line) {
@@ -1212,45 +1140,19 @@ define(["N/record", "N/log"], function (record, log) {
       });
 
       var finalSnapshot = buildSnapshot(reloaded);
+      surchargeTaxCompensation = {
+        attempted: false,
+        adjusted: false,
+        reason:
+          "Disabled so the Sales Order keeps the actual 2% surcharge amount. Fix tax drift at the tax override/non-taxable line level instead."
+      };
       if (shouldCompensateTaxedSurcharge(finalSnapshot, requestedTotals, amount)) {
-        try {
-          var compensationReload = record.load({
-            type: record.Type.SALES_ORDER,
-            id: savedId,
-            isDynamic: true
-          });
-          surchargeTaxCompensation = compensateTaxedSurcharge(
-            compensationReload,
-            requestedTotals
-          );
-          savedId = compensationReload.save({
-            enableSourcing: true,
-            ignoreMandatoryFields: true
-          });
-          diagLog("SURCHARGE_TAX_COMPENSATION_SUCCESS", {
-            savedId: savedId,
-            result: surchargeTaxCompensation
-          });
-          reloaded = record.load({
-            type: record.Type.SALES_ORDER,
-            id: savedId,
-            isDynamic: false
-          });
-          finalSnapshot = buildSnapshot(reloaded);
-        } catch (compensationError) {
-          surchargeTaxCompensation = {
-            attempted: true,
-            adjusted: false,
-            errorName: compensationError.name,
-            errorMessage: compensationError.message || String(compensationError)
-          };
-          diagLog("SURCHARGE_TAX_COMPENSATION_FAILED", surchargeTaxCompensation);
-        }
-      } else {
-        surchargeTaxCompensation = {
-          attempted: false,
-          reason: "Saved Sales Order did not match taxed-surcharge drift pattern."
-        };
+        diagLog("SURCHARGE_TAX_COMPENSATION_SKIPPED", {
+          savedId: savedId,
+          result: surchargeTaxCompensation,
+          snapshot: finalSnapshot,
+          requestedTotals: requestedTotals
+        });
       }
       taxFieldSnapshot = buildTaxFieldSnapshot(reloaded);
       taxDetailsAfterSave = getTaxDetailsSnapshot(reloaded);

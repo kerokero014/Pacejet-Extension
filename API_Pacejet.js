@@ -1005,11 +1005,10 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
       });
 
       intersection = next;
+    });
 
-      //  ---- debuggg ------
-      log.audit("Eligible Locations Intersection", {
-        result: intersection
-      });
+    log.audit("Eligible Locations Intersection", {
+      result: intersection || []
     });
 
     return intersection || [];
@@ -1454,7 +1453,7 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
       missingItems: 0
     };
 
-    items.forEach(function (item) {
+    items.forEach(function (item, i) {
       if (
         !item ||
         item.isDropShip === true ||
@@ -1463,11 +1462,33 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
         item.dropShip === "T"
       ) {
         summary.missingItems += 1;
+        log.audit("Item Availability Debug", {
+          index: i,
+          itemId: item && item.internalid,
+          name: item ? item.name || item.displayname || "" : "",
+          availableLocationIds: item ? item.availableLocationIds || [] : [],
+          warehouseAvailability: item ? item.warehouseAvailability || {} : {},
+          availableInSpringville: item && item.availableInSpringville,
+          availableInGeorgia: item && item.availableInGeorgia,
+          availableInDelaware: item && item.availableInDelaware,
+          availabilitySource: item ? item.availabilitySource || "" : ""
+        });
         return;
       }
 
       if (hasExplicitAvailabilityData(item)) {
         summary.explicitItems += 1;
+        log.audit("Item Availability Debug", {
+          index: i,
+          itemId: item.internalid,
+          name: item.name || item.displayname || "",
+          availableLocationIds: item.availableLocationIds || [],
+          warehouseAvailability: item.warehouseAvailability || {},
+          availableInSpringville: item.availableInSpringville,
+          availableInGeorgia: item.availableInGeorgia,
+          availableInDelaware: item.availableInDelaware,
+          availabilitySource: item.availabilitySource || ""
+        });
         return;
       }
 
@@ -1486,6 +1507,18 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
       } else {
         summary.missingItems += 1;
       }
+
+      log.audit("Item Availability Debug", {
+        index: i,
+        itemId: item.internalid,
+        name: item.name || item.displayname || "",
+        availableLocationIds: item.availableLocationIds || [],
+        warehouseAvailability: item.warehouseAvailability || {},
+        availableInSpringville: item.availableInSpringville,
+        availableInGeorgia: item.availableInGeorgia,
+        availableInDelaware: item.availableInDelaware,
+        availabilitySource: item.availabilitySource || ""
+      });
     });
 
     return summary;
@@ -1681,6 +1714,7 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     }
 
     if (mixedSpringville3pl) {
+      log.audit("Rule Applied: MIXED_TO_SPRINGVILLE", debug);
       return buildForcedSingleOriginPlan(
         LOCATION_IDS.SPRINGVILLE,
         ORIGIN_RULES.MIXED_TO_SPRINGVILLE,
@@ -1689,6 +1723,7 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     }
 
     if (allItemsHaveAny3pl(items) && packaging.drums > 20) {
+      log.audit("Rule Applied: OVER_DRUM_THRESHOLD", debug);
       return buildForcedSingleOriginPlan(
         LOCATION_IDS.SPRINGVILLE,
         ORIGIN_RULES.OVER_DRUM_THRESHOLD,
@@ -1697,6 +1732,7 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     }
 
     if (allItemsHaveAny3pl(items) && packaging.pails > 32) {
+      log.audit("Rule Applied: OVER_PAIL_THRESHOLD", debug);
       return buildForcedSingleOriginPlan(
         LOCATION_IDS.SPRINGVILLE,
         ORIGIN_RULES.OVER_PAIL_THRESHOLD,
@@ -1710,6 +1746,7 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
       log.audit("Chosen origin (NEW LOGIC)", {
         destinationState: destinationState,
         eligibleLocations: eligibleLocations,
+        priorityOrder: DEST_STATE_TO_ORIGIN_PRIORITY[destinationState] || [],
         chosen: chosen
       });
 
@@ -1866,14 +1903,11 @@ define(["N/runtime", "N/https", "N/record", "N/log", "N/search"], function (
     var originPlan = buildOriginPlan(body);
 
     try {
-      log.audit({
-        title: "Pacejet origin plan",
-        details: {
-          mode: originPlan.mode,
-          ruleApplied: originPlan.ruleApplied,
-          forcedLocationId: originPlan.forcedLocationId || "",
-          debug: originPlan.debug || {}
-        }
+      log.audit("FINAL Origin Plan", {
+        mode: originPlan.mode,
+        ruleApplied: originPlan.ruleApplied,
+        forcedLocationId: originPlan.forcedLocationId || "",
+        debug: originPlan.debug || {}
       });
     } catch (_eOriginPlanLog) {}
 

@@ -1108,6 +1108,11 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       window.ShippingAppliedFlag = false;
     }
 
+    PacejetState.setPersistencePending(true);
+    if (PacejetSummary && PacejetSummary.renderSummaryUI) {
+      PacejetSummary.renderSummaryUI(order);
+    }
+
     applyPacejetSelectionToCart(order, {
       shipCode: payload.shipCode,
       cost: payload.cost || 0,
@@ -1141,6 +1146,10 @@ define("RDT.Pacejet.Checkout.Module.V2", [
           })
           .fail(function (err) {})
           .always(function () {
+            PacejetState.setPersistencePending(false);
+            if (PacejetSummary && PacejetSummary.renderSummaryUI) {
+              PacejetSummary.renderSummaryUI(order);
+            }
             syncContinueStateFromOrder(order);
             waitForHostThenRefresh(order);
           });
@@ -1148,7 +1157,11 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       .fail(function (err) {
         if (applyToken !== SELECTION_APPLY_TOKEN) return;
         state.flags.selectionApplying = false;
+        PacejetState.setPersistencePending(false);
         clearSelectedRate();
+        if (PacejetSummary && PacejetSummary.renderSummaryUI) {
+          PacejetSummary.renderSummaryUI(order);
+        }
         syncContinueStateFromOrder(order);
         console.error(
           "[Pacejet] LiveOrder error",

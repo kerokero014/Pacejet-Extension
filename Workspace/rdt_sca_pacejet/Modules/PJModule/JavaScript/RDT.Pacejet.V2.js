@@ -249,10 +249,17 @@ define("RDT.Pacejet.V2", [
       surcharge: surcharge,
       shipping: +asNumber(snapshot.shippingcost, snapshot.shipping).toFixed(2),
       tax: +asNumber(
-        responseTax !== null ? responseTax : snapshot.taxtotal,
+        snapshot.taxtotal !== undefined && snapshot.taxtotal !== null
+          ? snapshot.taxtotal
+          : responseTax,
         snapshot.tax
       ).toFixed(2),
-      total: +asNumber(responseTotal !== null ? responseTotal : snapshot.total, 0).toFixed(2)
+      total: +asNumber(
+        snapshot.total !== undefined && snapshot.total !== null
+          ? snapshot.total
+          : responseTotal,
+        0
+      ).toFixed(2)
     };
   }
 
@@ -670,6 +677,12 @@ define("RDT.Pacejet.V2", [
     }
 
     TEST_APPLY_IN_FLIGHT = true;
+    if (PacejetState && PacejetState.setPersistencePending) {
+      PacejetState.setPersistencePending(true);
+    }
+    if (PacejetSummary && PacejetSummary.renderSummaryUI) {
+      PacejetSummary.renderSummaryUI(order);
+    }
     try {
       console.log("[Pacejet] test apply request", payload);
     } catch (_requestLogError) {}
@@ -746,6 +759,12 @@ define("RDT.Pacejet.V2", [
       })
       .always(function () {
         TEST_APPLY_IN_FLIGHT = false;
+        if (PacejetState && PacejetState.setPersistencePending) {
+          PacejetState.setPersistencePending(false);
+        }
+        if (PacejetSummary && PacejetSummary.renderSummaryUI) {
+          PacejetSummary.renderSummaryUI(order);
+        }
       });
   }
 
