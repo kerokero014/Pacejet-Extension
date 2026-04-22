@@ -557,7 +557,9 @@ define("RDT.Pacejet.Summary", [
       taxTotal = asNumber(getSummaryValue(summary, taxKeys), 0);
     }
 
-    surchargeSummary = PacejetSurcharge.buildSummary(subtotal, shipping, taxTotal);
+    surchargeSummary = PacejetSurcharge.buildSummary(subtotal, shipping, taxTotal, {
+      taxIncludesSurcharge: !!authoritativeSummary
+    });
 
     summary.handlingcost = 0;
     summary.handlingCost = 0;
@@ -739,7 +741,8 @@ define("RDT.Pacejet.Summary", [
     var surchargeSummary = PacejetSurcharge.buildSummary(
       subtotal,
       shipping,
-      tax
+      tax,
+      { taxIncludesSurcharge: true }
     );
 
     var data = {

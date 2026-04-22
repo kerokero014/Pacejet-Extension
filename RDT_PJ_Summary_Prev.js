@@ -6,6 +6,10 @@
 define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
   "use strict";
 
+  var SURCHARGE_ITEM_ID = 7768;
+  var SUBTOTAL_ITEM_ID = -2;
+  var SURCHARGE_RATE = 0.02;
+
   function writeJson(response, status, payload) {
     response.statusCode = status;
     response.setHeader({
@@ -18,6 +22,10 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
   function asNumber(value, fallback) {
     var n = Number(value);
     return isFinite(n) ? n : fallback || 0;
+  }
+
+  function round2(value) {
+    return Math.round((asNumber(value, 0) + Number.EPSILON) * 100) / 100;
   }
 
   function asString(value) {
@@ -365,6 +373,116 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     });
   }
 
+  function appendSubtotalLine(so) {
+    so.selectNewLine({ sublistId: "item" });
+    so.setCurrentSublistValue({
+      sublistId: "item",
+      fieldId: "item",
+      value: SUBTOTAL_ITEM_ID
+    });
+    so.commitLine({ sublistId: "item" });
+  }
+
+  function appendSurchargeLine(so, surchargeAmount) {
+    var normalizedAmount = round2(surchargeAmount);
+
+    if (normalizedAmount <= 0) {
+      return 0;
+    }
+
+    so.selectNewLine({ sublistId: "item" });
+    so.setCurrentSublistValue({
+      sublistId: "item",
+      fieldId: "item",
+      value: SURCHARGE_ITEM_ID
+    });
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "quantity",
+        value: 1
+      });
+    } catch (_e_quantity) {}
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "price",
+        value: -1
+      });
+    } catch (_e_price) {}
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "rate",
+        value: normalizedAmount
+      });
+    } catch (_e_rate) {}
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "amount",
+        value: normalizedAmount
+      });
+    } catch (_e_amount) {}
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "description",
+        value: "Surcharge 2%"
+      });
+    } catch (_e_description) {}
+
+    try {
+      so.setCurrentSublistValue({
+        sublistId: "item",
+        fieldId: "custcol_rdt_surcharge_rate",
+        value: "2%"
+      });
+    } catch (_e_custom_rate) {}
+
+    so.commitLine({ sublistId: "item" });
+    return normalizedAmount;
+  }
+
+  function addSurchargeLines(so, data) {
+    var requestedTotals =
+      data && data.totals && typeof data.totals === "object" ? data.totals : {};
+    var baseSubtotal = asNumber(requestedTotals.subtotal, 0);
+    var surchargeAmount;
+
+    if (baseSubtotal <= 0) {
+      try {
+        baseSubtotal = asNumber(so.getValue({ fieldId: "subtotal" }), 0);
+      } catch (_e_subtotal) {
+        baseSubtotal = 0;
+      }
+    }
+
+    surchargeAmount = round2(baseSubtotal * SURCHARGE_RATE);
+
+    if (surchargeAmount <= 0) {
+      return {
+        baseSubtotal: round2(baseSubtotal),
+        surcharge: 0,
+        adjustedSubtotal: round2(baseSubtotal)
+      };
+    }
+
+    appendSubtotalLine(so);
+    appendSurchargeLine(so, surchargeAmount);
+
+    return {
+      baseSubtotal: round2(baseSubtotal),
+      surcharge: surchargeAmount,
+      adjustedSubtotal: round2(baseSubtotal + surchargeAmount)
+    };
+  }
+
   function buildPreviewSalesOrder(data) {
     var shipmethod = asString(data.shipmethod).trim();
     var amount = asNumber(data.pacejetAmount, 0);
@@ -444,6 +562,7 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     });
 
     addLines(so, lines, locationId);
+    var surchargeSummary = addSurchargeLines(so, data);
 
     so.setValue({
       fieldId: "shippingcost",
@@ -466,7 +585,8 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
 
     return {
       record: so,
-      resolvedLocationId: locationId
+      resolvedLocationId: locationId,
+      surchargeSummary: surchargeSummary
     };
   }
 
@@ -481,6 +601,7 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
 
     var preview = buildPreviewSalesOrder(data);
     var so = preview.record;
+    var previewSurchargeSummary = preview.surchargeSummary || {};
     var calculateTaxBeforeSave = tryCalculateTax(so);
     var taxFieldBeforeSave = buildTaxFieldSnapshot(so);
     var taxDetailsBeforeSave = getTaxDetailsSnapshot(so);
@@ -500,10 +621,18 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
         isDynamic: false
       });
 
-      var subtotal = asNumber(
+      var adjustedSubtotal = asNumber(
         getValueSafe(reloaded, "subtotal"),
         requestedSubtotal
       );
+      var surcharge = asNumber(
+        previewSurchargeSummary.surcharge,
+        round2(requestedSubtotal * SURCHARGE_RATE)
+      );
+      var subtotal =
+        surcharge > 0 && adjustedSubtotal >= surcharge
+          ? round2(adjustedSubtotal - surcharge)
+          : adjustedSubtotal;
       var shipping = asNumber(
         getValueSafe(reloaded, "shippingcost"),
         requestedShipping
@@ -515,15 +644,18 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
         tax = requestedTax;
         if (!subtotal) subtotal = requestedSubtotal;
         if (!shipping) shipping = requestedShipping;
-        total = subtotal + shipping + tax;
+        total = subtotal + surcharge + shipping + tax;
       }
 
-      if (!total && (subtotal || shipping || tax)) {
-        total = subtotal + shipping + tax;
+      if (!total && (subtotal || surcharge || shipping || tax)) {
+        total = subtotal + surcharge + shipping + tax;
       }
 
       return {
         subtotal: Number(subtotal.toFixed(2)),
+        baseSubtotal: Number(subtotal.toFixed(2)),
+        adjustedSubtotal: Number(round2(subtotal + surcharge).toFixed(2)),
+        surcharge: Number(surcharge.toFixed(2)),
         shipping: Number(shipping.toFixed(2)),
         tax: Number(tax.toFixed(2)),
         total: Number(total.toFixed(2)),
@@ -535,6 +667,11 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
             shipping: requestedShipping,
             tax: requestedTax,
             total: requestedTotal
+          },
+          surchargeSummary: {
+            baseSubtotal: Number(subtotal.toFixed(2)),
+            surcharge: Number(surcharge.toFixed(2)),
+            adjustedSubtotal: Number(round2(subtotal + surcharge).toFixed(2))
           },
           calculateTaxBeforeSave: calculateTaxBeforeSave,
           taxFieldSnapshotBeforeSave: taxFieldBeforeSave,
@@ -601,6 +738,9 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
         shippingAddress: data.shippingAddress,
         totals: {
           subtotal: totals.subtotal,
+          baseSubtotal: totals.baseSubtotal,
+          adjustedSubtotal: totals.adjustedSubtotal,
+          surcharge: totals.surcharge,
           shipping: totals.shipping,
           tax: totals.tax,
           total: totals.total
@@ -613,6 +753,9 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
         resolvedLocationId: totals.resolvedLocationId,
         totals: {
           subtotal: totals.subtotal,
+          baseSubtotal: totals.baseSubtotal,
+          adjustedSubtotal: totals.adjustedSubtotal,
+          surcharge: totals.surcharge,
           shipping: totals.shipping,
           tax: totals.tax,
           total: totals.total

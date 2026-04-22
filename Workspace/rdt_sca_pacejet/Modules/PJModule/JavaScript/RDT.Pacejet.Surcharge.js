@@ -28,12 +28,20 @@ define("RDT.Pacejet.Surcharge", [], function () {
     }
   }
 
-  function buildSummary(baseSubtotal, shipping, tax) {
+  function buildSummary(baseSubtotal, shipping, tax, options) {
+    var opts = options && typeof options === "object" ? options : {};
     var normalizedSubtotal = round2(baseSubtotal);
     var normalizedShipping = round2(shipping);
-    var normalizedTax = round2(tax);
+    var sourceTax = round2(tax);
     var surchargeAmount = round2(normalizedSubtotal * SURCHARGE_RATE);
     var adjustedSubtotal = round2(normalizedSubtotal + surchargeAmount);
+    var taxableBasis = round2(normalizedSubtotal + normalizedShipping);
+    var inferredTaxRate =
+      taxableBasis > 0 && sourceTax > 0 ? sourceTax / taxableBasis : 0;
+    var surchargeTax = opts.taxIncludesSurcharge
+      ? 0
+      : round2(surchargeAmount * inferredTaxRate);
+    var normalizedTax = round2(sourceTax + surchargeTax);
     var total = round2(
       normalizedSubtotal + surchargeAmount + normalizedShipping + normalizedTax
     );
@@ -46,6 +54,8 @@ define("RDT.Pacejet.Surcharge", [], function () {
       adjustedSubtotal: adjustedSubtotal,
       shipping: normalizedShipping,
       tax: normalizedTax,
+      sourceTax: sourceTax,
+      surchargeTax: surchargeTax,
       total: total,
       baseSubtotalFormatted: formatMoney(normalizedSubtotal),
       surchargeFormatted: formatMoney(surchargeAmount),

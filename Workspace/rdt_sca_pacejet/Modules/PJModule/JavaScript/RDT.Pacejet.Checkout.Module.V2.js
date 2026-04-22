@@ -861,6 +861,13 @@ define("RDT.Pacejet.Checkout.Module.V2", [
       transitDays: payload.transitDays,
       totals: {
         subtotal: Number(response.totals.subtotal || 0),
+        baseSubtotal: Number(
+          response.totals.baseSubtotal || response.totals.subtotal || 0
+        ),
+        adjustedSubtotal: Number(
+          response.totals.adjustedSubtotal || response.totals.subtotal || 0
+        ),
+        surcharge: Number(response.totals.surcharge || 0),
         shipping: Number(response.totals.shipping || 0),
         tax: Number(response.totals.tax || 0),
         total: Number(response.totals.total || 0)
