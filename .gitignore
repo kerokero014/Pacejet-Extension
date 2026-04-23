@@ -26,3 +26,4 @@ LiveOrder.Service.ss
 PJModule.SalesOrder.AfterSubmit.js
 Tests/
 RESPONSE.md
+Test_SO_SL_V2.js

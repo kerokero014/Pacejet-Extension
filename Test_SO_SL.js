@@ -2,15 +2,24 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  */
-define(["N/record", "N/log"], function (record, log) {
+define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
   "use strict";
 
-  var SURCHARGE_ITEM_ID = 7768;
-  var SUBTOTAL_ITEM_ID = -2;
-  var SURCHARGE_RATE = 0.02;
-  var AVATAX_NON_TAXABLE_CODE = "NT";
+  const SCRIPT_PARAMETER_IDS = {
+    surchargeItemId: "custscript_rdt_pj_surcharge_item_id",
+    subtotalItemId: "custscript_rdt_pj_subtotal_item_id",
+    surchargeRate: "custscript_rdt_pj_surcharge_rate",
+    avataxNonTaxableCode: "custscript_rdt_pj_avatax_nt_code"
+  };
 
-  var BODY_FIELDS = {
+  const DEFAULT_SCRIPT_PARAMETERS = {
+    surchargeItemId: 7768,
+    subtotalItemId: -2,
+    surchargeRate: 0.02,
+    avataxNonTaxableCode: "NT"
+  };
+
+  const BODY_FIELDS = {
     amount: "custbody_rdt_pacejet_amount",
     carrier: "custbody_rdt_pj_carrier_name",
     service: "custbody_rdt_pj_service_name",
@@ -33,14 +42,6 @@ define(["N/record", "N/log"], function (record, log) {
     noneAdditionalFeesMayApply: "custbody_none_additional_fees_may_app"
   };
 
-  // ─── DIAGNOSTIC: tracks what modified the record between load and save ───
-  var diagnosticLog = [];
-
-  function diagLog(stage, detail) {
-    diagnosticLog.push({ stage: stage, detail: detail });
-    log.debug("DIAG [" + stage + "]", detail);
-  }
-
   function writeJson(response, status, payload) {
     response.statusCode = status;
     response.setHeader({
@@ -51,9 +52,47 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function asNumber(value) {
-    var n = Number(value);
+    const n = Number(value);
     return isFinite(n) ? n : 0;
   }
+
+  function readScriptParameter(parameterId, fallback) {
+    try {
+      const value = runtime.getCurrentScript().getParameter({ name: parameterId });
+      return value !== null && value !== undefined && value !== "" ? value : fallback;
+    } catch (_e) {
+      return fallback;
+    }
+  }
+
+  function readNumberScriptParameter(parameterId, fallback) {
+    const value = readScriptParameter(parameterId, fallback);
+    const parsedValue = Number(value);
+    return isFinite(parsedValue) ? parsedValue : fallback;
+  }
+
+  function readStringScriptParameter(parameterId, fallback) {
+    return String(readScriptParameter(parameterId, fallback));
+  }
+
+  const SCRIPT_PARAMETERS = {
+    surchargeItemId: readNumberScriptParameter(
+      SCRIPT_PARAMETER_IDS.surchargeItemId,
+      DEFAULT_SCRIPT_PARAMETERS.surchargeItemId
+    ),
+    subtotalItemId: readNumberScriptParameter(
+      SCRIPT_PARAMETER_IDS.subtotalItemId,
+      DEFAULT_SCRIPT_PARAMETERS.subtotalItemId
+    ),
+    surchargeRate: readNumberScriptParameter(
+      SCRIPT_PARAMETER_IDS.surchargeRate,
+      DEFAULT_SCRIPT_PARAMETERS.surchargeRate
+    ),
+    avataxNonTaxableCode: readStringScriptParameter(
+      SCRIPT_PARAMETER_IDS.avataxNonTaxableCode,
+      DEFAULT_SCRIPT_PARAMETERS.avataxNonTaxableCode
+    )
+  };
 
   function round2(value) {
     return Math.round((asNumber(value) + Number.EPSILON) * 100) / 100;
@@ -61,6 +100,11 @@ define(["N/record", "N/log"], function (record, log) {
 
   function asString(value) {
     return value == null ? "" : String(value);
+  }
+
+  function getSurchargePercentLabel() {
+    const percent = round2(SCRIPT_PARAMETERS.surchargeRate * 100);
+    return percent + "%";
   }
 
   function asBoolean(value) {
@@ -83,7 +127,7 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function normalizeTotals(value) {
-    var totals = value && typeof value === "object" ? value : null;
+    const totals = value && typeof value === "object" ? value : null;
     if (!totals) return null;
     return {
       subtotal: asNumber(totals.subtotal),
@@ -94,10 +138,10 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function buildTotalsFromSnapshot(snapshot) {
-    var data = snapshot && typeof snapshot === "object" ? snapshot : {};
-    var adjustedSubtotal = asNumber(data.subtotal);
-    var surcharge = asNumber(data.surcharge);
-    var baseSubtotal =
+    const data = snapshot && typeof snapshot === "object" ? snapshot : {};
+    const adjustedSubtotal = asNumber(data.subtotal);
+    const surcharge = asNumber(data.surcharge);
+    const baseSubtotal =
       surcharge > 0 && adjustedSubtotal >= surcharge
         ? round2(adjustedSubtotal - surcharge)
         : adjustedSubtotal;
@@ -118,8 +162,8 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function chooseResponseTotals(finalSnapshot, requestedTotals, amount) {
-    var snapshotTotals = buildTotalsFromSnapshot(finalSnapshot);
-    var surcharge = round2(snapshotTotals.surcharge);
+    const snapshotTotals = buildTotalsFromSnapshot(finalSnapshot);
+    let surcharge = round2(snapshotTotals.surcharge);
     if (
       requestedTotals &&
       almostEqual(snapshotTotals.subtotal, requestedTotals.subtotal) &&
@@ -128,7 +172,7 @@ define(["N/record", "N/log"], function (record, log) {
       almostEqual(snapshotTotals.tax, requestedTotals.tax) &&
       almostEqual(snapshotTotals.total, requestedTotals.total)
     ) {
-      surcharge = round2(requestedTotals.subtotal * SURCHARGE_RATE);
+      surcharge = round2(requestedTotals.subtotal * SCRIPT_PARAMETERS.surchargeRate);
       return {
         baseSubtotal: requestedTotals.subtotal,
         subtotal: requestedTotals.subtotal,
@@ -143,53 +187,11 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function sanitizeRequestedTotals(requestedTotals, merchandiseSubtotal, amount) {
-    if (!requestedTotals) {
-      return null;
-    }
-
-    if (
-      requestedTotals.subtotal <= 0 ||
-      requestedTotals.tax <= 0 ||
-      requestedTotals.total <= 0
-    ) {
-      return null;
-    }
-
-    if (Math.abs(requestedTotals.subtotal - merchandiseSubtotal) >= 0.01) {
-      return null;
-    }
-
-    if (Math.abs(requestedTotals.shipping - amount) >= 0.01) {
-      return null;
-    }
-
+    if (!requestedTotals) return null;
+    if (requestedTotals.subtotal <= 0 || requestedTotals.tax <= 0 || requestedTotals.total <= 0) return null;
+    if (Math.abs(requestedTotals.subtotal - merchandiseSubtotal) >= 0.01) return null;
+    if (Math.abs(requestedTotals.shipping - amount) >= 0.01) return null;
     return requestedTotals;
-  }
-
-  function shouldCompensateTaxedSurcharge(finalSnapshot, requestedTotals, amount) {
-    var snapshotTotals;
-    var expectedSurcharge;
-    var extraTax;
-    var totalDrift;
-
-    if (!requestedTotals) {
-      return false;
-    }
-
-    snapshotTotals = buildTotalsFromSnapshot(finalSnapshot);
-    expectedSurcharge = round2(requestedTotals.subtotal * SURCHARGE_RATE);
-    extraTax = round2(snapshotTotals.tax - requestedTotals.tax);
-    totalDrift = round2(snapshotTotals.total - requestedTotals.total);
-
-    return (
-      expectedSurcharge > 0 &&
-      extraTax > 0 &&
-      totalDrift > 0 &&
-      almostEqual(snapshotTotals.subtotal, requestedTotals.subtotal) &&
-      almostEqual(snapshotTotals.shipping, amount) &&
-      almostEqual(snapshotTotals.surcharge, expectedSurcharge) &&
-      almostEqual(extraTax, totalDrift)
-    );
   }
 
   function getSublistValueSafe(rec, sublistId, fieldId, line) {
@@ -213,23 +215,17 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function getTaxDetailsSnapshot(rec) {
-    var lines = [];
-    var count = 0;
-    var i;
+    const lines = [];
+    let count = 0;
     try {
       count = rec.getLineCount({ sublistId: "taxdetails" }) || 0;
     } catch (_e) {
       return { available: false, count: 0, lines: [] };
     }
-    for (i = 0; i < count; i += 1) {
+    for (let i = 0; i < count; i += 1) {
       lines.push({
         line: i,
-        taxdetailsreference: getSublistValueSafe(
-          rec,
-          "taxdetails",
-          "taxdetailsreference",
-          i
-        ),
+        taxdetailsreference: getSublistValueSafe(rec, "taxdetails", "taxdetailsreference", i),
         linetype: getSublistValueSafe(rec, "taxdetails", "linetype", i),
         linename: getSublistValueSafe(rec, "taxdetails", "linename", i),
         netamount: getSublistValueSafe(rec, "taxdetails", "netamount", i),
@@ -245,14 +241,11 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function getSurchargeLineTaxSnapshot(rec) {
-    var count = getItemLineCount(rec);
-    var lines = [];
-    var i;
+    const count = getItemLineCount(rec);
+    const lines = [];
 
-    for (i = 0; i < count; i += 1) {
-      if (!isSurchargeItemLine(rec, i)) {
-        continue;
-      }
+    for (let i = 0; i < count; i += 1) {
+      if (!isSurchargeItemLine(rec, i)) continue;
 
       lines.push({
         line: i,
@@ -267,11 +260,7 @@ define(["N/record", "N/log"], function (record, log) {
         taxable: getItemSublistValue(rec, "taxable", i),
         taxrate1: getItemSublistValue(rec, "taxrate1", i),
         tax1amt: getItemSublistValue(rec, "tax1amt", i),
-        avaTaxCodeMapping: getItemSublistValue(
-          rec,
-          "custcol_ava_taxcodemapping",
-          i
-        ),
+        avaTaxCodeMapping: getItemSublistValue(rec, "custcol_ava_taxcodemapping", i),
         avaTaxAmount: getItemSublistValue(rec, "custcol_ava_taxamount", i)
       });
     }
@@ -300,86 +289,16 @@ define(["N/record", "N/log"], function (record, log) {
     };
   }
 
-  // ─── DIAGNOSTIC: reads the record's last-modified timestamp directly ───
-  function getRecordTimestamp(orderId) {
-    try {
-      var probe = record.load({
-        type: record.Type.SALES_ORDER,
-        id: orderId,
-        isDynamic: false
-      });
-      return {
-        lastmodifieddate:
-          probe.getValue({ fieldId: "lastmodifieddate" }) || "N/A",
-        lastmodifiedby: probe.getValue({ fieldId: "lastmodifiedby" }) || "N/A"
-      };
-    } catch (e) {
-      return { error: e.message || String(e) };
-    }
-  }
-
-  // ─── DIAGNOSTIC: compare timestamps before and after a risky step ───
-  function checkTimestampDrift(orderId, stage, baselineTimestamp) {
-    var current = getRecordTimestamp(orderId);
-    var drifted =
-      current.lastmodifieddate !== baselineTimestamp.lastmodifieddate;
-
-    diagLog("TIMESTAMP_CHECK [" + stage + "]", {
-      baseline: baselineTimestamp,
-      current: current,
-      drifted: drifted
-    });
-
-    if (drifted) {
-      log.error(
-        "RCRD_CHANGED_DETECTED at [" + stage + "]",
-        "Record was modified externally. Baseline: " +
-          JSON.stringify(baselineTimestamp) +
-          " | Current: " +
-          JSON.stringify(current)
-      );
-    }
-
-    return { current: current, drifted: drifted };
-  }
-
-  function tryCalculateTax(rec) {
-    var result = { attempted: false, success: false, message: "" };
-    if (!rec || typeof rec.executeMacro !== "function") {
-      result.message = "executeMacro is not available on this record object.";
-      return result;
-    }
-    result.attempted = true;
-    try {
-      rec.executeMacro({ id: "calculateTax" });
-      result.success = true;
-      result.message = "calculateTax macro executed successfully.";
-    } catch (e) {
-      result.message = e.message || String(e);
-    }
-    return result;
-  }
-
-  function skipCalculateTax(reason) {
-    return {
-      attempted: false,
-      success: false,
-      message: reason || "Skipped calculateTax for Pacejet surcharge apply."
-    };
-  }
-
   function buildTaxDiagnostics(
     finalSnapshot,
     requestedTotals,
     taxOverrideResults,
-    calculateTaxResult,
-    taxDetailsBeforeSave,
     taxDetailsAfterSave,
     taxFieldSnapshot
   ) {
-    var snapshotTotals = buildTotalsFromSnapshot(finalSnapshot);
-    var requested = requestedTotals || null;
-    var mismatch =
+    const snapshotTotals = buildTotalsFromSnapshot(finalSnapshot);
+    const requested = requestedTotals || null;
+    const mismatch =
       !!requested &&
       (Math.abs(snapshotTotals.tax - requested.tax) >= 0.01 ||
         Math.abs(snapshotTotals.total - requested.total) >= 0.01);
@@ -388,8 +307,6 @@ define(["N/record", "N/log"], function (record, log) {
       requestedTotals: requested,
       snapshotTotals: snapshotTotals,
       overrideAttempts: taxOverrideResults || {},
-      calculateTax: calculateTaxResult || null,
-      taxDetailsBeforeSave: taxDetailsBeforeSave || null,
       taxDetailsAfterSave: taxDetailsAfterSave || null,
       taxFieldSnapshot: taxFieldSnapshot || null,
       mismatch: mismatch,
@@ -409,7 +326,7 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function maybeSetSelect(rec, fieldId, value, results) {
-    var textValue = asString(value).trim();
+    const textValue = asString(value).trim();
     if (!textValue) return false;
     try {
       rec.setValue({ fieldId: fieldId, value: Number(textValue) });
@@ -422,11 +339,11 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function extractLocationIdFromOriginKey(originKey) {
-    var value = asString(originKey).trim();
-    var locMatch = value.match(/^LOC_(\d+)$/i);
-    var mainMatch = value.match(/^MAIN\|(\d+)$/i);
-    var facilityMatch = value.match(/^FACILITY\|MAIN\|(\d+)$/i);
-    var trailingIdMatch = value.match(/\|(\d+)$/);
+    const value = asString(originKey).trim();
+    const locMatch = value.match(/^LOC_(\d+)$/i);
+    const mainMatch = value.match(/^MAIN\|(\d+)$/i);
+    const facilityMatch = value.match(/^FACILITY\|MAIN\|(\d+)$/i);
+    const trailingIdMatch = value.match(/\|(\d+)$/);
     if (locMatch) return locMatch[1];
     if (mainMatch) return mainMatch[1];
     if (facilityMatch) return facilityMatch[1];
@@ -435,10 +352,10 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function collectWarehouseLocationIds(origins) {
-    var ids = [];
+    const ids = [];
     if (!Array.isArray(origins)) return ids;
     origins.forEach(function (origin) {
-      var locationId = "";
+      let locationId = "";
       if (!origin || origin.dropShip) return;
       locationId = extractLocationIdFromOriginKey(origin.originKey);
       if (
@@ -454,26 +371,19 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function resolveSalesOrderLocationId(data, quoteJson) {
-    var parsedQuote = safeJsonParse(quoteJson || "{}", {});
-    var originIds = collectWarehouseLocationIds(parsedQuote.origins);
-    var directLocationId = asString(data.locationId).trim();
-    var fallbackLocationId = extractLocationIdFromOriginKey(data.originKey);
+    const parsedQuote = safeJsonParse(quoteJson || "{}", {});
+    const originIds = collectWarehouseLocationIds(parsedQuote.origins);
+    const directLocationId = asString(data.locationId).trim();
+    const fallbackLocationId = extractLocationIdFromOriginKey(data.originKey);
     if (/^\d+$/.test(directLocationId)) return directLocationId;
     if (originIds.length === 1) return originIds[0];
     if (originIds.length > 1) return "";
     return fallbackLocationId;
   }
 
-  function buildLocationDiagnostics(
-    data,
-    quoteJson,
-    resolvedLocationId,
-    setResult
-  ) {
-    var parsedQuote = safeJsonParse(quoteJson || "{}", {});
-    var quoteOrigins = Array.isArray(parsedQuote.origins)
-      ? parsedQuote.origins
-      : [];
+  function buildLocationDiagnostics(data, quoteJson, resolvedLocationId, setResult) {
+    const parsedQuote = safeJsonParse(quoteJson || "{}", {});
+    const quoteOrigins = Array.isArray(parsedQuote.origins) ? parsedQuote.origins : [];
     return {
       requestLocationId: asString(data.locationId).trim(),
       requestOriginKey: asString(data.originKey).trim(),
@@ -509,26 +419,18 @@ define(["N/record", "N/log"], function (record, log) {
       pacejetAmount: so.getValue({ fieldId: BODY_FIELDS.amount }) || "",
       carrier: so.getValue({ fieldId: BODY_FIELDS.carrier }) || "",
       service: so.getValue({ fieldId: BODY_FIELDS.service }) || "",
-      callPriorTruck:
-        so.getValue({ fieldId: BODY_FIELDS.callPriorTruck }) || false,
+      callPriorTruck: so.getValue({ fieldId: BODY_FIELDS.callPriorTruck }) || false,
       jobsite: so.getValue({ fieldId: BODY_FIELDS.jobsite }) || false,
-      liftgateTruck:
-        so.getValue({ fieldId: BODY_FIELDS.liftgateTruck }) || false,
+      liftgateTruck: so.getValue({ fieldId: BODY_FIELDS.liftgateTruck }) || false,
       residential: so.getValue({ fieldId: BODY_FIELDS.residential }) || false,
-      appointmentTruck:
-        so.getValue({ fieldId: BODY_FIELDS.appointmentTruck }) || false,
+      appointmentTruck: so.getValue({ fieldId: BODY_FIELDS.appointmentTruck }) || false,
       selfStorage: so.getValue({ fieldId: BODY_FIELDS.selfStorage }) || false,
-      schoolDelivery:
-        so.getValue({ fieldId: BODY_FIELDS.schoolDelivery }) || false,
-      insideDelivery:
-        so.getValue({ fieldId: BODY_FIELDS.insideDelivery }) || false,
-      accessHazmatParcel:
-        so.getValue({ fieldId: BODY_FIELDS.accessHazmatParcel }) || false,
-      dangerousGoods:
-        so.getValue({ fieldId: BODY_FIELDS.dangerousGoods }) || false,
+      schoolDelivery: so.getValue({ fieldId: BODY_FIELDS.schoolDelivery }) || false,
+      insideDelivery: so.getValue({ fieldId: BODY_FIELDS.insideDelivery }) || false,
+      accessHazmatParcel: so.getValue({ fieldId: BODY_FIELDS.accessHazmatParcel }) || false,
+      dangerousGoods: so.getValue({ fieldId: BODY_FIELDS.dangerousGoods }) || false,
       noneAdditionalFeesMayApply:
-        so.getValue({ fieldId: BODY_FIELDS.noneAdditionalFeesMayApply }) ||
-        false,
+        so.getValue({ fieldId: BODY_FIELDS.noneAdditionalFeesMayApply }) || false,
       surchargeLines: getSurchargeLineTaxSnapshot(so)
     };
   }
@@ -546,13 +448,15 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function isSurchargeItemLine(rec, line) {
-    return String(getItemSublistValue(rec, "item", line) || "") ===
-      String(SURCHARGE_ITEM_ID);
+    return (
+      String(getItemSublistValue(rec, "item", line) || "") === String(SCRIPT_PARAMETERS.surchargeItemId)
+    );
   }
 
   function isSubtotalItemLine(rec, line) {
-    return String(getItemSublistValue(rec, "item", line) || "") ===
-      String(SUBTOTAL_ITEM_ID);
+    return (
+      String(getItemSublistValue(rec, "item", line) || "") === String(SCRIPT_PARAMETERS.subtotalItemId)
+    );
   }
 
   function isManagedSurchargeLine(rec, line) {
@@ -560,53 +464,40 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function getMerchandiseSubtotal(rec) {
-    var count = getItemLineCount(rec);
-    var total = 0;
-    var i;
-
-    for (i = 0; i < count; i += 1) {
-      if (isManagedSurchargeLine(rec, i)) {
-        continue;
-      }
-
+    const count = getItemLineCount(rec);
+    let total = 0;
+    for (let i = 0; i < count; i += 1) {
+      if (isManagedSurchargeLine(rec, i)) continue;
       total += asNumber(getItemSublistValue(rec, "amount", i) || 0);
     }
-
     return round2(total);
   }
 
   function getSurchargeLineAmount(rec) {
-    var count = getItemLineCount(rec);
-    var total = 0;
-    var i;
-
-    for (i = 0; i < count; i += 1) {
-      if (!isSurchargeItemLine(rec, i)) {
-        continue;
-      }
-
+    const count = getItemLineCount(rec);
+    let total = 0;
+    for (let i = 0; i < count; i += 1) {
+      if (!isSurchargeItemLine(rec, i)) continue;
       total += asNumber(
         getItemSublistValue(rec, "amount", i) ||
           getItemSublistValue(rec, "grossamt", i) ||
           0
       );
     }
-
     return round2(total);
   }
 
   function markCurrentLineNonTaxable(so) {
-    var nonTaxLineFields = [
+    const nonTaxLineFields = [
       { fieldId: "istaxable", value: false },
       { fieldId: "taxable", value: false },
       { fieldId: "taxrate1", value: 0 },
       { fieldId: "tax1amt", value: 0 },
-      { fieldId: "custcol_ava_taxcodemapping", value: AVATAX_NON_TAXABLE_CODE },
+      { fieldId: "custcol_ava_taxcodemapping", value: SCRIPT_PARAMETERS.avataxNonTaxableCode },
       { fieldId: "custcol_ava_taxamount", value: 0 }
     ];
-    var i;
 
-    for (i = 0; i < nonTaxLineFields.length; i += 1) {
+    for (let i = 0; i < nonTaxLineFields.length; i += 1) {
       try {
         so.setCurrentSublistValue({
           sublistId: "item",
@@ -626,81 +517,52 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function removeManagedSurchargeLines(so) {
-    var lineCount = getItemLineCount(so);
-    var removeLines = {};
-    var i;
+    const lineCount = getItemLineCount(so);
+    const removeLines = {};
 
-    for (i = 0; i < lineCount; i += 1) {
-      if (!isSurchargeItemLine(so, i)) {
-        continue;
-      }
-
+    for (let i = 0; i < lineCount; i += 1) {
+      if (!isSurchargeItemLine(so, i)) continue;
       removeLines[i] = true;
-      if (i > 0 && isSubtotalItemLine(so, i - 1)) {
-        removeLines[i - 1] = true;
-      }
+      if (i > 0 && isSubtotalItemLine(so, i - 1)) removeLines[i - 1] = true;
     }
 
-    for (i = lineCount - 1; i >= 0; i -= 1) {
-      if (!removeLines[i]) {
-        continue;
-      }
-
-      so.removeLine({
-        sublistId: "item",
-        line: i,
-        ignoreRecalc: false
-      });
+    for (let i = lineCount - 1; i >= 0; i -= 1) {
+      if (!removeLines[i]) continue;
+      so.removeLine({ sublistId: "item", line: i, ignoreRecalc: false });
     }
   }
 
   function appendSurchargeLine(so, surchargeAmount) {
-    var normalizedAmount = round2(surchargeAmount);
+    const normalizedAmount = round2(surchargeAmount);
 
     so.selectNewLine({ sublistId: "item" });
     so.setCurrentSublistValue({
       sublistId: "item",
       fieldId: "item",
-      value: SURCHARGE_ITEM_ID
+      value: SCRIPT_PARAMETERS.surchargeItemId
     });
 
     try {
-      so.setCurrentSublistValue({
-        sublistId: "item",
-        fieldId: "quantity",
-        value: 1
-      });
+      so.setCurrentSublistValue({ sublistId: "item", fieldId: "quantity", value: 1 });
     } catch (_e) {}
 
     try {
-      so.setCurrentSublistValue({
-        sublistId: "item",
-        fieldId: "price",
-        value: -1
-      });
+      so.setCurrentSublistValue({ sublistId: "item", fieldId: "price", value: -1 });
     } catch (_e_price) {}
 
     try {
-      so.setCurrentSublistValue({
-        sublistId: "item",
-        fieldId: "rate",
-        value: normalizedAmount
-      });
+      so.setCurrentSublistValue({ sublistId: "item", fieldId: "rate", value: normalizedAmount });
     } catch (_e_rate) {}
 
     try {
-      so.setCurrentSublistValue({
-        sublistId: "item",
-        fieldId: "amount",
-        value: normalizedAmount
-      });
+      so.setCurrentSublistValue({ sublistId: "item", fieldId: "amount", value: normalizedAmount });
     } catch (_e_amount) {}
 
     try {
       so.setCurrentSublistValue({
         sublistId: "item",
         fieldId: "description",
-        value: "Surcharge 2%"
+        value: "Surcharge " + getSurchargePercentLabel()
       });
     } catch (_e_description) {}
 
@@ -708,7 +570,7 @@ define(["N/record", "N/log"], function (record, log) {
       so.setCurrentSublistValue({
         sublistId: "item",
         fieldId: "custcol_rdt_surcharge_rate",
-        value: "2%"
+        value: getSurchargePercentLabel()
       });
     } catch (_e_custom_rate) {}
 
@@ -716,9 +578,7 @@ define(["N/record", "N/log"], function (record, log) {
     // behavior varies.
     markCurrentLineNonTaxable(so);
 
-    so.commitLine({
-      sublistId: "item"
-    });
+    so.commitLine({ sublistId: "item" });
 
     return normalizedAmount;
   }
@@ -728,11 +588,9 @@ define(["N/record", "N/log"], function (record, log) {
     so.setCurrentSublistValue({
       sublistId: "item",
       fieldId: "item",
-      value: SUBTOTAL_ITEM_ID
+      value: SCRIPT_PARAMETERS.subtotalItemId
     });
-    so.commitLine({
-      sublistId: "item"
-    });
+    so.commitLine({ sublistId: "item" });
   }
 
   function ensureSubtotalAndSurchargeLines(so, surchargeAmount) {
@@ -742,23 +600,19 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function enforceCommittedSurchargeLinesNonTaxable(so) {
-    var count = getItemLineCount(so);
-    var fields = [
+    const count = getItemLineCount(so);
+    const fields = [
       { fieldId: "taxcode", value: -7 },
       { fieldId: "istaxable", value: false },
       { fieldId: "taxable", value: false },
       { fieldId: "taxrate1", value: 0 },
       { fieldId: "tax1amt", value: 0 },
-      { fieldId: "custcol_ava_taxcodemapping", value: AVATAX_NON_TAXABLE_CODE },
+      { fieldId: "custcol_ava_taxcodemapping", value: SCRIPT_PARAMETERS.avataxNonTaxableCode },
       { fieldId: "custcol_ava_taxamount", value: 0 }
     ];
-    var i;
-    var j;
 
-    for (i = 0; i < count; i += 1) {
-      if (!isSurchargeItemLine(so, i)) {
-        continue;
-      }
+    for (let i = 0; i < count; i += 1) {
+      if (!isSurchargeItemLine(so, i)) continue;
 
       try {
         so.selectLine({ sublistId: "item", line: i });
@@ -766,7 +620,7 @@ define(["N/record", "N/log"], function (record, log) {
         continue;
       }
 
-      for (j = 0; j < fields.length; j += 1) {
+      for (let j = 0; j < fields.length; j += 1) {
         try {
           so.setCurrentSublistValue({
             sublistId: "item",
@@ -794,22 +648,13 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function applyTaxOverride(rec, requestedTotals, results) {
-    if (!requestedTotals) {
-      return false;
-    }
-
+    if (!requestedTotals) return false;
     trySetValue(rec, "taxdetailsoverride", true, results);
     trySetValue(rec, "taxtotaloverride", requestedTotals.tax, results);
     trySetValue(rec, "taxamountoverride", requestedTotals.tax, results);
-
     return true;
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // applyFieldsToRecord
-  // Extracted so the same field-setting logic can be reused on retry without
-  // duplicating code. Every setValue that touches the Sales Order lives here.
-  // ─────────────────────────────────────────────────────────────────────────
   function applyFieldsToRecord(
     so,
     data,
@@ -820,8 +665,8 @@ define(["N/record", "N/log"], function (record, log) {
     requestedTotals,
     taxOverrideResults
   ) {
-    var merchandiseSubtotal = getMerchandiseSubtotal(so);
-    var surchargeAmount = round2(merchandiseSubtotal * SURCHARGE_RATE);
+    const merchandiseSubtotal = getMerchandiseSubtotal(so);
+    const surchargeAmount = round2(merchandiseSubtotal * SCRIPT_PARAMETERS.surchargeRate);
 
     ensureSubtotalAndSurchargeLines(so, surchargeAmount);
     enforceCommittedSurchargeLinesNonTaxable(so);
@@ -834,11 +679,7 @@ define(["N/record", "N/log"], function (record, log) {
     maybeSet(so, BODY_FIELDS.service, asString(data.service));
     maybeSet(so, BODY_FIELDS.originKey, asString(data.originKey));
     maybeSet(so, BODY_FIELDS.transitDays, asString(data.transitDays));
-    maybeSet(
-      so,
-      BODY_FIELDS.estimatedArrivalDate,
-      asString(data.estimatedArrivalDate)
-    );
+    maybeSet(so, BODY_FIELDS.estimatedArrivalDate, asString(data.estimatedArrivalDate));
 
     setBoolean(so, BODY_FIELDS.callPriorTruck, data.callPriorTruck);
     setBoolean(so, BODY_FIELDS.jobsite, data.jobsite);
@@ -850,14 +691,10 @@ define(["N/record", "N/log"], function (record, log) {
     setBoolean(so, BODY_FIELDS.insideDelivery, data.insideDelivery);
     setBoolean(so, BODY_FIELDS.accessHazmatParcel, data.accessHazmatParcel);
     setBoolean(so, BODY_FIELDS.dangerousGoods, data.dangerousGoods);
-    setBoolean(
-      so,
-      BODY_FIELDS.noneAdditionalFeesMayApply,
-      data.noneAdditionalFeesMayApply
-    );
+    setBoolean(so, BODY_FIELDS.noneAdditionalFeesMayApply, data.noneAdditionalFeesMayApply);
 
-    if (quoteJson.length > 3900) quoteJson = quoteJson.slice(0, 3900);
-    maybeSet(so, BODY_FIELDS.quoteJson, quoteJson);
+    const truncatedQuoteJson = quoteJson.length > 3900 ? quoteJson.slice(0, 3900) : quoteJson;
+    maybeSet(so, BODY_FIELDS.quoteJson, truncatedQuoteJson);
     maybeSetSelect(so, "location", resolvedLocationId, {});
 
     // Reset tax override first, then apply if needed
@@ -869,8 +706,8 @@ define(["N/record", "N/log"], function (record, log) {
   }
 
   function onRequest(context) {
-    var req = context.request;
-    var res = context.response;
+    const req = context.request;
+    const res = context.response;
 
     if (req.method === "GET") {
       return writeJson(res, 200, {
@@ -883,24 +720,20 @@ define(["N/record", "N/log"], function (record, log) {
       return writeJson(res, 405, { ok: false, error: "POST required" });
     }
 
-    var data = {};
+    let data = {};
     try {
       data = JSON.parse(req.body || "{}");
     } catch (e) {
       return writeJson(res, 400, { ok: false, error: "Invalid JSON" });
     }
 
-    var orderId = asString(data.orderId).trim();
-    var shipmethod = asString(data.shipmethod).trim();
-    var amount = asNumber(data.pacejetAmount);
-    var requestedTotals = normalizeTotals(data.totals);
-    var taxOverrideResults = {};
-    var calculateTaxResult = null;
-    var taxDetailsBeforeSave = null;
-    var taxDetailsAfterSave = null;
-    var taxFieldSnapshot = null;
-    var surchargeTaxCompensation = null;
-    var locationSetResults = {};
+    const orderId = asString(data.orderId).trim();
+    const shipmethod = asString(data.shipmethod).trim();
+    const amount = asNumber(data.pacejetAmount);
+    let requestedTotals = normalizeTotals(data.totals);
+    const taxOverrideResults = {};
+    let taxDetailsAfterSave = null;
+    let taxFieldSnapshot = null;
 
     if (!/^\d+$/.test(orderId)) {
       return writeJson(res, 400, {
@@ -909,46 +742,28 @@ define(["N/record", "N/log"], function (record, log) {
       });
     }
     if (!shipmethod) {
-      return writeJson(res, 400, {
-        ok: false,
-        error: "shipmethod is required"
-      });
+      return writeJson(res, 400, { ok: false, error: "shipmethod is required" });
     }
     if (amount <= 0) {
-      return writeJson(res, 400, {
-        ok: false,
-        error: "pacejetAmount must be > 0"
-      });
+      return writeJson(res, 400, { ok: false, error: "pacejetAmount must be > 0" });
     }
 
     try {
-      var quoteJson = asString(data.quoteJson);
-      var resolvedLocationId = resolveSalesOrderLocationId(data, quoteJson);
+      const quoteJson = asString(data.quoteJson);
+      const resolvedLocationId = resolveSalesOrderLocationId(data, quoteJson);
 
-      // ── DIAGNOSTIC STEP 1: Capture baseline timestamp right after load ──
-      var so = record.load({
+      let so = record.load({
         type: record.Type.SALES_ORDER,
         id: orderId,
         isDynamic: true
       });
-      var initialMerchandiseSubtotal = getMerchandiseSubtotal(so);
+      const initialMerchandiseSubtotal = getMerchandiseSubtotal(so);
       requestedTotals = sanitizeRequestedTotals(
         requestedTotals,
         initialMerchandiseSubtotal,
         amount
       );
 
-      var baselineTimestamp = getRecordTimestamp(orderId);
-      diagLog("LOAD", {
-        orderId: orderId,
-        timestamp: baselineTimestamp,
-        initialMerchandiseSubtotal: initialMerchandiseSubtotal,
-        sanitizedRequestedTotals: requestedTotals
-      });
-
-      log.audit("Pacejet test apply - before", buildSnapshot(so));
-
-      // ── Apply all field changes ──
       applyFieldsToRecord(
         so,
         data,
@@ -960,49 +775,22 @@ define(["N/record", "N/log"], function (record, log) {
         taxOverrideResults
       );
 
-      // ── DIAGNOSTIC STEP 2: Check if fields alone caused a drift ──
-      checkTimestampDrift(orderId, "AFTER_SETVALUE", baselineTimestamp);
-
-      // ── DIAGNOSTIC STEP 3: calculateTax — most likely culprit ──
-      // Check timestamp before and after to confirm if THIS is what triggers
-      // the record change that causes RCRD_HAS_BEEN_CHANGED on save.
-      diagLog("PRE_CALCULATE_TAX", { requestedTotals: requestedTotals });
-      calculateTaxResult = skipCalculateTax(
-        "Skipped before save so AvaTax does not tax the Pacejet surcharge line."
-      );
-      diagLog("POST_CALCULATE_TAX", { result: calculateTaxResult });
-
-      // ── DIAGNOSTIC STEP 4: If calculateTax drifted the record, skip it on retry ──
-      var calculateTaxCausedDrift = false;
-
-      taxDetailsBeforeSave = getTaxDetailsSnapshot(so);
-
-      // ─────────────────────────────────────────────────────────────────
-      // SAVE WITH RETRY
-      // On retry: reload the record fresh, re-apply fields, and skip
-      // calculateTax if it was identified as the cause of the drift.
-      // ─────────────────────────────────────────────────────────────────
-      var MAX_RETRIES = 3;
-      var attempt = 0;
-      var savedId = null;
-      var lastError = null;
+      const MAX_RETRIES = 3;
+      let attempt = 0;
+      let savedId = null;
+      let lastError = null;
 
       while (attempt < MAX_RETRIES) {
         try {
           if (attempt > 0) {
-            log.audit("Pacejet RETRY attempt #" + attempt, {
-              orderId: orderId,
-              calculateTaxCausedDrift: calculateTaxCausedDrift
-            });
+            log.audit("Pacejet RETRY attempt #" + attempt, { orderId: orderId });
 
-            // Reload fresh — this is the key step on retry
             so = record.load({
               type: record.Type.SALES_ORDER,
               id: orderId,
               isDynamic: true
             });
 
-            // Re-apply all field changes on the freshly loaded record
             applyFieldsToRecord(
               so,
               data,
@@ -1013,25 +801,6 @@ define(["N/record", "N/log"], function (record, log) {
               requestedTotals,
               taxOverrideResults
             );
-
-            // ── DIAGNOSTIC: Only re-run calculateTax if it was NOT the cause ──
-            // If calculateTax caused the drift, skip it entirely on retries.
-            if (!calculateTaxCausedDrift) {
-              diagLog("RETRY_SKIPPED_CALCULATE_TAX", { attempt: attempt });
-              calculateTaxResult = skipCalculateTax(
-                "Skipped on retry so AvaTax does not tax the Pacejet surcharge line."
-              );
-            } else {
-              diagLog("RETRY_SKIPPED_CALCULATE_TAX", {
-                reason: "calculateTax caused timestamp drift on first attempt",
-                attempt: attempt
-              });
-              calculateTaxResult = {
-                attempted: false,
-                success: false,
-                message: "Skipped on retry — identified as drift cause"
-              };
-            }
           }
 
           savedId = so.save({
@@ -1039,46 +808,24 @@ define(["N/record", "N/log"], function (record, log) {
             ignoreMandatoryFields: true
           });
 
-          diagLog("SAVE_SUCCESS", { attempt: attempt, savedId: savedId });
-          break; // ── success, exit retry loop ──
+          break;
         } catch (e) {
           lastError = e;
-          diagLog("SAVE_FAILED", {
-            attempt: attempt,
-            errorName: e.name,
-            errorMessage: e.message || String(e)
-          });
-
           log.error("Pacejet save attempt #" + attempt + " failed", {
             name: e.name,
             message: e.message || String(e)
           });
 
           if (e.name === "RCRD_HAS_BEEN_CHANGED" && attempt < MAX_RETRIES - 1) {
-            // ── Check who changed the record between our load and save ──
-            var driftCheck = checkTimestampDrift(
-              orderId,
-              "AFTER_SAVE_FAIL_attempt_" + attempt,
-              baselineTimestamp
-            );
-            diagLog("DRIFT_ON_FAIL", {
-              attempt: attempt,
-              drift: driftCheck
-            });
             attempt++;
           } else {
-            // Not a record-changed error, or we've exhausted retries — give up
             throw e;
           }
         }
       }
 
-      // ── If all retries exhausted without saving ──
       if (savedId === null) {
-        throw (
-          lastError ||
-          new Error("Failed to save after " + MAX_RETRIES + " attempts")
-        );
+        throw lastError || new Error("Failed to save after " + MAX_RETRIES + " attempts");
       }
 
       if (requestedTotals) {
@@ -1097,18 +844,9 @@ define(["N/record", "N/log"], function (record, log) {
             }
           });
           taxOverrideResults.postSaveSubmitFields = requestedTotals.tax;
-          diagLog("POST_SAVE_TAX_OVERRIDE_SUCCESS", {
-            savedId: savedId,
-            requestedTax: requestedTotals.tax
-          });
         } catch (submitFieldsError) {
-          diagLog("POST_SAVE_TAX_OVERRIDE_SUBMIT_FIELDS_FAILED", {
-            errorName: submitFieldsError.name,
-            errorMessage: submitFieldsError.message || String(submitFieldsError),
-            requestedTax: requestedTotals.tax
-          });
           try {
-            var overrideReload = record.load({
+            const overrideReload = record.load({
               type: record.Type.SALES_ORDER,
               id: savedId,
               isDynamic: true
@@ -1118,78 +856,50 @@ define(["N/record", "N/log"], function (record, log) {
               enableSourcing: false,
               ignoreMandatoryFields: true
             });
-            diagLog("POST_SAVE_TAX_OVERRIDE_RELOAD_SUCCESS", {
-              savedId: savedId,
-              requestedTax: requestedTotals.tax
-            });
           } catch (overrideError) {
-            diagLog("POST_SAVE_TAX_OVERRIDE_FAILED", {
-              errorName: overrideError.name,
-              errorMessage: overrideError.message || String(overrideError),
-              requestedTax: requestedTotals.tax
+            log.error("Pacejet post-save tax override failed", {
+              name: overrideError.name,
+              message: overrideError.message || String(overrideError)
             });
           }
         }
       }
 
-      // ── Post-save: reload to confirm final state ──
-      var reloaded = record.load({
+      const reloaded = record.load({
         type: record.Type.SALES_ORDER,
         id: savedId,
         isDynamic: false
       });
 
-      var finalSnapshot = buildSnapshot(reloaded);
-      surchargeTaxCompensation = {
-        attempted: false,
-        adjusted: false,
-        reason:
-          "Disabled so the Sales Order keeps the actual 2% surcharge amount. Fix tax drift at the tax override/non-taxable line level instead."
-      };
-      if (shouldCompensateTaxedSurcharge(finalSnapshot, requestedTotals, amount)) {
-        diagLog("SURCHARGE_TAX_COMPENSATION_SKIPPED", {
-          savedId: savedId,
-          result: surchargeTaxCompensation,
-          snapshot: finalSnapshot,
-          requestedTotals: requestedTotals
-        });
-      }
+      const finalSnapshot = buildSnapshot(reloaded);
       taxFieldSnapshot = buildTaxFieldSnapshot(reloaded);
       taxDetailsAfterSave = getTaxDetailsSnapshot(reloaded);
-      var responseTotals = chooseResponseTotals(
-        finalSnapshot,
-        requestedTotals,
-        amount
-      );
+      const responseTotals = chooseResponseTotals(finalSnapshot, requestedTotals, amount);
 
-      var taxDiagnostics = buildTaxDiagnostics(
+      const taxDiagnostics = buildTaxDiagnostics(
         finalSnapshot,
         requestedTotals,
         taxOverrideResults,
-        calculateTaxResult,
-        taxDetailsBeforeSave,
         taxDetailsAfterSave,
         taxFieldSnapshot
       );
-      var locationDiagnostics = buildLocationDiagnostics(
+      const locationDiagnostics = buildLocationDiagnostics(
         data,
         quoteJson,
         resolvedLocationId,
-        locationSetResults
+        {}
       );
 
-      log.audit("Pacejet test apply - after", {
-        snapshot: finalSnapshot,
+      log.audit("Pacejet apply - after", {
+        orderId: savedId,
         resolvedLocationId: resolvedLocationId,
-        locationDiagnostics: locationDiagnostics,
-        responseTotals: responseTotals,
-        requestedTotals: requestedTotals,
-        taxOverrideResults: taxOverrideResults,
-        surchargeTaxCompensation: surchargeTaxCompensation,
-        taxDiagnostics: taxDiagnostics,
-        retriesUsed: attempt,
-        calculateTaxCausedDrift: calculateTaxCausedDrift,
-        diagnosticLog: diagnosticLog
+        subtotal: finalSnapshot.subtotal,
+        surcharge: finalSnapshot.surcharge,
+        shipping: finalSnapshot.shippingcost,
+        tax: finalSnapshot.taxtotal,
+        total: finalSnapshot.total,
+        taxMismatch: taxDiagnostics.mismatch,
+        retriesUsed: attempt
       });
 
       return writeJson(res, 200, {
@@ -1199,26 +909,17 @@ define(["N/record", "N/log"], function (record, log) {
         locationDiagnostics: locationDiagnostics,
         totals: responseTotals,
         snapshot: finalSnapshot,
-        taxDiagnostics: taxDiagnostics,
-        surchargeTaxCompensation: surchargeTaxCompensation,
-        // ── Included in response so you can see retry/drift info live ──
-        _debug: {
-          retriesUsed: attempt,
-          calculateTaxCausedDrift: calculateTaxCausedDrift,
-          diagnosticLog: diagnosticLog
-        }
+        taxDiagnostics: taxDiagnostics
       });
     } catch (e) {
-      log.error("Pacejet test apply failed", {
+      log.error("Pacejet apply failed", {
         name: e.name,
-        message: e.message || String(e),
-        diagnosticLog: diagnosticLog
+        message: e.message || String(e)
       });
 
       return writeJson(res, 500, {
         ok: false,
-        error: e.message || String(e),
-        _debug: { diagnosticLog: diagnosticLog }
+        error: e.message || String(e)
       });
     }
   }
