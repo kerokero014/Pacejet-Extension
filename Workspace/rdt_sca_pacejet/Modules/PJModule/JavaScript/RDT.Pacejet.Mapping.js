@@ -197,22 +197,8 @@ define("RDT.Pacejet.Mapping", [
       rate = rates[i] || {};
       apiShipCode = String(rate.shipCode || "").trim();
 
-      // 1) Trust API shipCode only if:
-      //    - shipmethods are not loaded yet, OR
-      //    - the API code is valid in current LiveOrder
-      if (
-        apiShipCode &&
-        (!hasShipmethods || isValidShipmethodId(apiShipCode, validShipmethods))
-      ) {
-        rate.shipCode = apiShipCode;
-        rate._mapping = {
-          type: "api",
-          rule: null
-        };
-        continue;
-      }
-
-      // 2) Explicit config mapping
+      // 1) Explicit config mapping takes highest priority — overrides the raw
+      //    API shipCodeXRef so that our NetSuite codes always win when defined.
       explicit = mapViaConfig(rate);
       if (
         explicit &&
@@ -224,6 +210,20 @@ define("RDT.Pacejet.Mapping", [
         rate._mapping = {
           type: "explicit",
           rule: explicit.rule
+        };
+        continue;
+      }
+
+      // 2) Trust API shipCode only if it is valid in the current LiveOrder
+      //    (or shipmethods haven't loaded yet and no config rule matched above).
+      if (
+        apiShipCode &&
+        (!hasShipmethods || isValidShipmethodId(apiShipCode, validShipmethods))
+      ) {
+        rate.shipCode = apiShipCode;
+        rate._mapping = {
+          type: "api",
+          rule: null
         };
         continue;
       }

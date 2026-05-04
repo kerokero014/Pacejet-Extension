@@ -200,12 +200,12 @@ define("RDT.Pacejet.Config", [], function () {
       // AAA Cooper / MME / NorthPark
       // --------------------
       {
-        carrier: "AAA COOPER",
+        carrier: "AAACooper",
         serviceIncludes: "GUARANTEED",
         shipCode: "7764"
       },
       {
-        carrier: "AAA COOPER",
+        carrier: "AAACooper",
         serviceIncludes: "STANDARD",
         shipCode: "365"
       },

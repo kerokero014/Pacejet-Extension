@@ -272,7 +272,7 @@ define("RDT.Pacejet.UI", [
       return days + " day" + (days === 1 ? "" : "s");
     }
 
-    return "";
+    return "N/A";
   }
 
   function getHostTitleEl($host) {
@@ -346,7 +346,7 @@ define("RDT.Pacejet.UI", [
     raw = String(raw).trim();
 
     if (!raw || raw.toUpperCase() === "NA") {
-      return "";
+      return "N/A";
     }
 
     // If Pacejet already returned a display string like:

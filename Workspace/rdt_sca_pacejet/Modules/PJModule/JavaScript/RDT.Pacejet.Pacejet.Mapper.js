@@ -133,8 +133,15 @@ define("RDT.Pacejet.Pacejet.Mapper", [
         serviceFees: serviceFees,
         fuel: fuel,
 
-        transitDays: typeof rr.transitTime === "number" ? rr.transitTime : null,
-        estDelivery: rr.arrivalDateText || "",
+        transitDays:
+          typeof rr.transitTime === "number" && rr.transitTime > 0
+            ? rr.transitTime
+            : null,
+        estDelivery:
+          rr.arrivalDateText &&
+          String(rr.arrivalDateText).toUpperCase() !== "NA"
+            ? rr.arrivalDateText
+            : "",
         totalWeight: num(rr.totalWeight || rr.shipmentWeight || rr.weight || 0),
 
         raw: rr
