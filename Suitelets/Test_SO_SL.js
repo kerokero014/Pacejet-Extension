@@ -42,6 +42,11 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     noneAdditionalFeesMayApply: "custbody_none_additional_fees_may_app"
   };
 
+  const EMAIL_FIELDS = {
+    ready: "custbody_rdt_order_email_ready",
+    error: "custbody_rdt_order_email_error"
+  };
+
   function writeJson(response, status, payload) {
     response.statusCode = status;
     response.setHeader({
@@ -705,6 +710,36 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     applyTaxOverride(so, requestedTotals, taxOverrideResults);
   }
 
+  function markOrderEmailReady(orderId) {
+    try {
+      record.submitFields({
+        type: record.Type.SALES_ORDER,
+        id: orderId,
+        values: {
+          [EMAIL_FIELDS.ready]: true,
+          [EMAIL_FIELDS.error]: ""
+        },
+        options: {
+          enableSourcing: false,
+          ignoreMandatoryFields: true
+        }
+      });
+
+      return { ok: true };
+    } catch (e) {
+      log.error("Pacejet email ready flag failed", {
+        orderId: orderId,
+        name: e.name,
+        message: e.message || String(e)
+      });
+
+      return {
+        ok: false,
+        error: e.message || String(e)
+      };
+    }
+  }
+
   function onRequest(context) {
     const req = context.request;
     const res = context.response;
@@ -889,6 +924,7 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
         resolvedLocationId,
         {}
       );
+      const emailReadyResult = markOrderEmailReady(savedId);
 
       log.audit("Pacejet apply - after", {
         orderId: savedId,
@@ -909,7 +945,8 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
         locationDiagnostics: locationDiagnostics,
         totals: responseTotals,
         snapshot: finalSnapshot,
-        taxDiagnostics: taxDiagnostics
+        taxDiagnostics: taxDiagnostics,
+        emailReady: emailReadyResult
       });
     } catch (e) {
       log.error("Pacejet apply failed", {
