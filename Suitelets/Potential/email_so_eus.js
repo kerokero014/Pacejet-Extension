@@ -24,9 +24,6 @@ define([
   var FIELD_PJ_EST_ARRIVAL = "custbody_rdt_pj_est_arrival_date";
   var FIELD_PJ_QUOTE_JSON = "custbody_rdt_pj_quote_json";
 
-  // Replace with your actual email template internal ID
-  var EMAIL_TEMPLATE_ID = 196;
-
   // Replace with an employee internal ID that can send the email
   var EMAIL_AUTHOR_ID = 33415;
 
@@ -44,6 +41,17 @@ define([
 
   function asBool(value) {
     return value === true || value === "T" || value === "true" || value === "1";
+  }
+
+  function getEventType(context) {
+    return asString(context && context.type).toLowerCase();
+  }
+
+  function isSupportedEvent(context) {
+    var eventType = getEventType(context);
+    return (
+      eventType === "create" || eventType === "edit" || eventType === "xedit"
+    );
   }
 
   function getTextSafe(rec, fieldId) {
@@ -124,10 +132,12 @@ define([
     var zeroShipAllowed = isWillCallOrZeroShipAllowed(rec);
     var pacejetPresent = hasPacejetData(rec);
     var emailReady = asBool(getValueSafe(rec, FIELD_EMAIL_READY));
+    var pacejetPersisted =
+      pacejetPresent && pacejetAmount > 0 && shippingCost > 0 && total > 0;
 
     var reasons = [];
 
-    if (!emailReady) {
+    if (!emailReady && !pacejetPersisted) {
       reasons.push("Waiting for Pacejet persistence to mark email ready");
     }
 
@@ -168,6 +178,7 @@ define([
         shipmethod: shipmethod,
         pacejetAmount: pacejetAmount,
         pacejetPresent: pacejetPresent,
+        pacejetPersisted: pacejetPersisted,
         zeroShipAllowed: zeroShipAllowed,
         emailReady: emailReady,
         customerEmail: customerEmail
@@ -189,6 +200,14 @@ define([
   }
 
   function markStatus(soId, values) {
+    log.debug({
+      title: "SO email status update",
+      details: {
+        soId: soId,
+        values: values
+      }
+    });
+
     record.submitFields({
       type: record.Type.SALES_ORDER,
       id: soId,
@@ -200,43 +219,293 @@ define([
     });
   }
 
-  function sendOrderEmail(soId, customerEmail) {
-    var mergeResult = render.mergeEmail({
-      templateId: EMAIL_TEMPLATE_ID,
-      transactionId: soId
+  function logSkip(soId, reason, details) {
+    log.audit({
+      title: "SO email skipped",
+      details: {
+        soId: soId,
+        reason: reason,
+        details: details || {}
+      }
     });
+  }
 
-    email.send({
+  function escapeHtml(value) {
+    return asString(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function formatMoney(value) {
+    return "$" + asNumber(value, 0).toFixed(2);
+  }
+
+  function getSublistValueSafe(rec, sublistId, fieldId, line) {
+    try {
+      return rec.getSublistValue({
+        sublistId: sublistId,
+        fieldId: fieldId,
+        line: line
+      });
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function getSublistTextSafe(rec, sublistId, fieldId, line) {
+    try {
+      return rec.getSublistText({
+        sublistId: sublistId,
+        fieldId: fieldId,
+        line: line
+      });
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function getItemRows(rec) {
+    var rows = [];
+    var count = 0;
+    var i;
+
+    try {
+      count = rec.getLineCount({ sublistId: "item" }) || 0;
+    } catch (e) {
+      count = 0;
+    }
+
+    for (i = 0; i < count; i++) {
+      rows.push({
+        item:
+          getSublistTextSafe(rec, "item", "item", i) ||
+          getSublistValueSafe(rec, "item", "item", i),
+        description: getSublistValueSafe(rec, "item", "description", i),
+        quantity: getSublistValueSafe(rec, "item", "quantity", i),
+        rate: getSublistValueSafe(rec, "item", "rate", i),
+        amount: getSublistValueSafe(rec, "item", "amount", i)
+      });
+    }
+
+    return rows;
+  }
+
+  function buildOrderEmailBody(rec) {
+    var tranid = asString(getValueSafe(rec, "tranid"));
+    var customerName = getTextSafe(rec, "entity") || "Customer";
+    var shipMethod = getTextSafe(rec, "shipmethod");
+
+    var subtotal = getValueSafe(rec, "subtotal");
+    var shipping = getValueSafe(rec, "shippingcost");
+    var tax = getValueSafe(rec, "taxtotal");
+    var total = getValueSafe(rec, "total");
+    var discount = getValueSafe(rec, "discounttotal") || 0;
+
+    // Addresses
+    var shipAddress = asString(getValueSafe(rec, "shipaddress"));
+    var billAddress = asString(getValueSafe(rec, "billaddress"));
+
+    var rows = getItemRows(rec);
+
+    var itemRows = rows
+      .map(function (line) {
+        return (
+          "<tr>" +
+          "<td style='padding:10px;border-bottom:1px solid #eee;'>" +
+          "<strong>" +
+          escapeHtml(line.item) +
+          "</strong><br>" +
+          "<span style='color:#666;font-size:12px;'>" +
+          escapeHtml(line.description) +
+          "</span>" +
+          "</td>" +
+          "<td style='padding:10px;text-align:center;border-bottom:1px solid #eee;'>" +
+          escapeHtml(line.quantity) +
+          "</td>" +
+          "<td style='padding:10px;text-align:right;border-bottom:1px solid #eee;'>" +
+          formatMoney(line.rate) +
+          "</td>" +
+          "<td style='padding:10px;text-align:right;border-bottom:1px solid #eee;'><strong>" +
+          formatMoney(line.amount) +
+          "</strong></td>" +
+          "</tr>"
+        );
+      })
+      .join("");
+
+    return (
+      "<div style='font-family:Arial,Helvetica,sans-serif;background:#f5f7fa;padding:20px;'>" +
+      "<div style='max-width:700px;margin:auto;background:#ffffff;padding:24px;border-radius:8px;border:1px solid #e5e7eb;'>" +
+      "<h2 style='margin:0 0 10px;color:#111;'>Order Received</h2>" +
+      "<p style='margin:0 0 16px;color:#555;'>Order number <strong>" +
+      escapeHtml(tranid) +
+      "</strong></p>" +
+      "<p>Dear " +
+      escapeHtml(customerName) +
+      ",</p>" +
+      "<p>Thank you for shopping at Curecrete Distribution, Inc. Please find all the order details below and have a nice day.<br>- Curecrete Distribution, Inc.</p>" +
+      "<h3 style='margin-top:24px;border-bottom:2px solid #eee;padding-bottom:6px;'>Order Summary</h3>" +
+      "<table style='width:100%;border-collapse:collapse;margin-top:10px;'>" +
+      "<thead>" +
+      "<tr style='background:#fafafa;'>" +
+      "<th style='padding:10px;text-align:left;'>Item</th>" +
+      "<th style='padding:10px;text-align:center;'>Qty</th>" +
+      "<th style='padding:10px;text-align:right;'>Price</th>" +
+      "<th style='padding:10px;text-align:right;'>Total</th>" +
+      "</tr>" +
+      "</thead>" +
+      "<tbody>" +
+      itemRows +
+      "</tbody>" +
+      "</table>" +
+      "<table style='width:100%;margin-top:16px;border-collapse:collapse;'>" +
+      "<tr><td style='padding:6px;'>Subtotal</td><td style='text-align:right;'>" +
+      formatMoney(subtotal) +
+      "</td></tr>" +
+      "<tr><td style='padding:6px;'>Discount</td><td style='text-align:right;'>" +
+      formatMoney(discount) +
+      "</td></tr>" +
+      "<tr><td style='padding:6px;'>Shipping</td><td style='text-align:right;'>" +
+      formatMoney(shipping) +
+      "</td></tr>" +
+      "<tr><td style='padding:6px;'>Tax</td><td style='text-align:right;'>" +
+      formatMoney(tax) +
+      "</td></tr>" +
+      "<tr><td style='padding:10px;border-top:2px solid #ddd;'><strong>TOTAL</strong></td>" +
+      "<td style='text-align:right;border-top:2px solid #ddd;'><strong>" +
+      formatMoney(total) +
+      "</strong></td></tr>" +
+      "</table>" +
+      "<div style='display:flex;gap:20px;margin-top:24px;flex-wrap:wrap;'>" +
+      "<div style='flex:1;min-width:250px;'>" +
+      "<h4 style='margin-bottom:6px;'>Shipping Address</h4>" +
+      "<div style='color:#555;font-size:14px;white-space:pre-line;'>" +
+      escapeHtml(shipAddress) +
+      "</div>" +
+      "<p style='margin-top:8px;'><strong>Method:</strong> " +
+      escapeHtml(shipMethod) +
+      "</p>" +
+      "</div>" +
+      "<div style='flex:1;min-width:250px;'>" +
+      "<h4 style='margin-bottom:6px;'>Bill To</h4>" +
+      "<div style='color:#555;font-size:14px;white-space:pre-line;'>" +
+      escapeHtml(billAddress) +
+      "</div>" +
+      "</div>" +
+      "</div>" +
+      "<p style='margin-top:24px;color:#555;'>If you are a registered customer, you can log in to see your order status.</p>" +
+      "</div></div>"
+    );
+  }
+
+  function buildTransactionPdf(soId) {
+    try {
+      return render.transaction({
+        entityId: Number(soId),
+        printMode: render.PrintMode.PDF
+      });
+    } catch (e) {
+      log.error({
+        title: "SO email PDF render failed",
+        details: {
+          soId: soId,
+          name: e.name,
+          message: e.message || String(e)
+        }
+      });
+      return null;
+    }
+  }
+
+  function sendOrderEmail(soId, customerEmail, soRec) {
+    var tranid = asString(getValueSafe(soRec, "tranid"));
+    var subject = "Order Received " + tranid;
+    var body = buildOrderEmailBody(soRec);
+    var pdf = buildTransactionPdf(soId);
+    var emailPayload = {
       author: EMAIL_AUTHOR_ID,
       recipients: customerEmail,
       replyTo: "info@curecrete.com",
-      subject: mergeResult.subject,
-      body: mergeResult.body,
+      subject: subject,
+      body: body,
       relatedRecords: {
         transactionId: soId
       }
+    };
+
+    if (pdf) {
+      emailPayload.attachments = [pdf];
+    }
+
+    log.audit({
+      title: "SO email send start",
+      details: {
+        soId: soId,
+        authorId: EMAIL_AUTHOR_ID,
+        recipient: customerEmail,
+        subject: subject,
+        hasPdfAttachment: !!pdf
+      }
     });
 
-    return mergeResult;
+    email.send(emailPayload);
+
+    return {
+      subject: subject
+    };
   }
 
   function afterSubmit(context) {
     try {
-      if (
-        context.type !== context.UserEventType.CREATE &&
-        context.type !== context.UserEventType.EDIT
-      ) {
+      var eventType = getEventType(context);
+
+      if (!isSupportedEvent(context)) {
+        log.debug({
+          title: "SO email ignored event",
+          details: {
+            eventType: eventType,
+            executionContext: runtime.executionContext
+          }
+        });
         return;
       }
 
       if (context.newRecord.type !== record.Type.SALES_ORDER) {
+        log.debug({
+          title: "SO email ignored record type",
+          details: {
+            recordType: context.newRecord.type,
+            eventType: eventType,
+            executionContext: runtime.executionContext
+          }
+        });
         return;
       }
 
       var soId = context.newRecord.id;
       if (!soId) {
+        log.debug({
+          title: "SO email skipped",
+          details: {
+            reason: "No Sales Order internal ID",
+            eventType: eventType,
+            executionContext: runtime.executionContext
+          }
+        });
         return;
       }
+
+      log.audit({
+        title: "SO email afterSubmit start",
+        details: {
+          soId: soId,
+          eventType: eventType,
+          executionContext: runtime.executionContext
+        }
+      });
 
       var soRec = record.load({
         type: record.Type.SALES_ORDER,
@@ -260,6 +529,13 @@ define([
       });
 
       if (!eligibility.webOrder) {
+        logSkip(soId, "Not a web order", {
+          eventType: eventType,
+          source:
+            getTextSafe(soRec, "source") ||
+            getTextSafe(soRec, "custbody_source")
+        });
+
         markStatus(soId, {
           [FIELD_EMAIL_READY]: false,
           [FIELD_EMAIL_ERROR]: "Not a web order"
@@ -268,14 +544,32 @@ define([
       }
 
       if (eligibility.alreadySent) {
+        logSkip(soId, "Email already sent", {
+          eventType: eventType,
+          snapshot: eligibility.readiness.snapshot
+        });
         return;
       }
 
-      if (!eligibility.readiness.snapshot.emailReady) {
+      if (
+        !eligibility.readiness.snapshot.emailReady &&
+        !eligibility.readiness.snapshot.pacejetPersisted
+      ) {
+        logSkip(soId, "Waiting for Pacejet ready flag", {
+          eventType: eventType,
+          reasons: eligibility.readiness.reasons,
+          snapshot: eligibility.readiness.snapshot
+        });
         return;
       }
 
       if (!eligibility.readiness.ready) {
+        logSkip(soId, "Order is not email-ready", {
+          eventType: eventType,
+          reasons: eligibility.readiness.reasons,
+          snapshot: eligibility.readiness.snapshot
+        });
+
         markStatus(soId, {
           [FIELD_EMAIL_READY]: false,
           [FIELD_EMAIL_ERROR]: eligibility.readiness.reasons.join(" | ")
@@ -285,6 +579,11 @@ define([
 
       var customerEmail = eligibility.readiness.snapshot.customerEmail;
       if (!customerEmail) {
+        logSkip(soId, "Missing customer email", {
+          eventType: eventType,
+          snapshot: eligibility.readiness.snapshot
+        });
+
         markStatus(soId, {
           [FIELD_EMAIL_READY]: false,
           [FIELD_EMAIL_ERROR]: "Missing customer email on Sales Order"
@@ -292,7 +591,22 @@ define([
         return;
       }
 
-      var merged = sendOrderEmail(soId, customerEmail);
+      if (
+        !eligibility.readiness.snapshot.emailReady &&
+        eligibility.readiness.snapshot.pacejetPersisted
+      ) {
+        log.audit({
+          title: "SO email using Pacejet persisted fallback",
+          details: {
+            soId: soId,
+            eventType: eventType,
+            executionContext: runtime.executionContext,
+            snapshot: eligibility.readiness.snapshot
+          }
+        });
+      }
+
+      var sentEmail = sendOrderEmail(soId, customerEmail, soRec);
 
       markStatus(soId, {
         [FIELD_EMAIL_SENT]: true,
@@ -304,7 +618,10 @@ define([
         title: "SO email sent",
         details: {
           soId: soId,
-          subject: merged.subject
+          subject: sentEmail.subject,
+          recipient: customerEmail,
+          eventType: eventType,
+          executionContext: runtime.executionContext
         }
       });
     } catch (e) {
