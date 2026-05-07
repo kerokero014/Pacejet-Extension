@@ -420,58 +420,33 @@ define(["N/record", "N/log"], (record, log) => {
     }
 
     var dep;
-    var depositCreationMode = "transform";
+    var depositCreationMode = "manual";
+
+    dep = record.create({
+      type: record.Type.CUSTOMER_DEPOSIT,
+      isDynamic: true
+    });
+
+    dep.setValue({
+      fieldId: "customer",
+      value: customerId
+    });
 
     try {
-      dep = record.transform({
-        fromType: record.Type.SALES_ORDER,
-        fromId: soId,
-        toType: record.Type.CUSTOMER_DEPOSIT,
-        isDynamic: true
-      });
-
-      log.debug("Transformed Sales Order to Customer Deposit", {
-        soId: soId,
-        customerId: customerId
-      });
-    } catch (transformError) {
-      depositCreationMode = "manual";
-
-      log.error(
-        "Could not transform Sales Order to Customer Deposit; falling back to manual create",
-        {
-          soId: soId,
-          customerId: customerId,
-          error: transformError
-        }
-      );
-
-      dep = record.create({
-        type: record.Type.CUSTOMER_DEPOSIT,
-        isDynamic: true
-      });
-
       dep.setValue({
-        fieldId: "customer",
-        value: customerId
+        fieldId: "salesorder",
+        value: soId
       });
-
-      try {
-        dep.setValue({
-          fieldId: "salesorder",
-          value: soId
-        });
-      } catch (salesOrderLinkError) {
-        log.error("Could not link manually-created Customer Deposit to SO", {
-          soId: soId,
-          customerId: customerId,
-          paymentMode: paymentMode,
-          depositAmount: depositAmount,
-          split: split,
-          error: salesOrderLinkError
-        });
-        throw salesOrderLinkError;
-      }
+    } catch (salesOrderLinkError) {
+      log.error("Could not link Customer Deposit to SO", {
+        soId: soId,
+        customerId: customerId,
+        paymentMode: paymentMode,
+        depositAmount: depositAmount,
+        split: split,
+        error: salesOrderLinkError
+      });
+      throw salesOrderLinkError;
     }
 
     if (currencyId) {
