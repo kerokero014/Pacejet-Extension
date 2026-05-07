@@ -25,7 +25,8 @@ define([
   var FIELD_PJ_QUOTE_JSON = "custbody_rdt_pj_quote_json";
 
   // Replace with an employee internal ID that can send the email
-  var EMAIL_AUTHOR_ID = 33415;
+  // var EMAIL_AUTHOR_ID = 33415; // Kevin ID for testing --- IGNORE ---
+  var EMAIL_AUTHOR_ID = 23827; // Customer Suppport ID for production
 
   // Optional: restrict only to your web source text
   var WEB_SOURCE_TEXT = "Web (Curecrete Distribution, Inc.)";
@@ -304,7 +305,6 @@ define([
     var total = getValueSafe(rec, "total");
     var discount = getValueSafe(rec, "discounttotal") || 0;
 
-    // Addresses
     var shipAddress = asString(getValueSafe(rec, "shipaddress"));
     var billAddress = asString(getValueSafe(rec, "billaddress"));
 
@@ -314,21 +314,21 @@ define([
       .map(function (line) {
         return (
           "<tr>" +
-          "<td style='padding:10px;border-bottom:1px solid #eee;'>" +
+          "<td style='padding:12px;border-bottom:1px solid #eee;'>" +
           "<strong>" +
           escapeHtml(line.item) +
           "</strong><br>" +
-          "<span style='color:#666;font-size:12px;'>" +
+          "<span style='color:#6b7280;font-size:12px;'>" +
           escapeHtml(line.description) +
           "</span>" +
           "</td>" +
-          "<td style='padding:10px;text-align:center;border-bottom:1px solid #eee;'>" +
+          "<td style='padding:12px;text-align:center;border-bottom:1px solid #eee;'>" +
           escapeHtml(line.quantity) +
           "</td>" +
-          "<td style='padding:10px;text-align:right;border-bottom:1px solid #eee;'>" +
+          "<td style='padding:12px;text-align:right;border-bottom:1px solid #eee;'>" +
           formatMoney(line.rate) +
           "</td>" +
-          "<td style='padding:10px;text-align:right;border-bottom:1px solid #eee;'><strong>" +
+          "<td style='padding:12px;text-align:right;border-bottom:1px solid #eee;'><strong>" +
           formatMoney(line.amount) +
           "</strong></td>" +
           "</tr>"
@@ -337,20 +337,25 @@ define([
       .join("");
 
     return (
-      "<div style='font-family:Arial,Helvetica,sans-serif;background:#f5f7fa;padding:20px;'>" +
-      "<div style='max-width:700px;margin:auto;background:#ffffff;padding:24px;border-radius:8px;border:1px solid #e5e7eb;'>" +
-      "<h2 style='margin:0 0 10px;color:#111;'>Order Received</h2>" +
-      "<p style='margin:0 0 16px;color:#555;'>Order number <strong>" +
+      "<div style='background:#f3f4f6;padding:30px;font-family:Arial,sans-serif;'>" +
+      "<div style='max-width:720px;margin:auto;background:#ffffff;border-radius:10px;padding:28px;border:1px solid #e5e7eb;'>" +
+      "<h2 style='margin:0;color:#111827;'>Order Received</h2>" +
+      "<p style='color:#6b7280;margin-top:4px;font-size:small;'>Order number <strong>" +
       escapeHtml(tranid) +
       "</strong></p>" +
-      "<p>Dear " +
+      "<p style='margin-top:20px;font-size: large;font-weight: 600;'>Dear " +
       escapeHtml(customerName) +
       ",</p>" +
-      "<p>Thank you for shopping at Curecrete Distribution, Inc. Please find all the order details below and have a nice day.<br>- Curecrete Distribution, Inc.</p>" +
-      "<h3 style='margin-top:24px;border-bottom:2px solid #eee;padding-bottom:6px;'>Order Summary</h3>" +
-      "<table style='width:100%;border-collapse:collapse;margin-top:10px;'>" +
+      "<p style='line-height:1.6;color:#374151;font-size:medium;'>" +
+      "Thank you for shopping at " +
+      "<a href='https://buy.curecrete.com' style='color:#2563eb;text-decoration:none;font-weight:600;'>Curecrete Distribution, Inc.</a>" +
+      ". Please find all the order details below and have a nice day.<br>" +
+      "<span style='color:#6b7280;'>- Curecrete Distribution, Inc.</span>" +
+      "</p>" +
+      "<h3 style='margin-top:28px;border-bottom:1px solid #e5e7eb;padding-bottom:8px;color:#111827;'>Order Summary</h3>" +
+      "<table style='width:100%;border-collapse:collapse;margin-top:12px;font-size:14px;'>" +
       "<thead>" +
-      "<tr style='background:#fafafa;'>" +
+      "<tr style='background:#f9fafb;color:#6b7280;text-transform:uppercase;font-size:12px;'>" +
       "<th style='padding:10px;text-align:left;'>Item</th>" +
       "<th style='padding:10px;text-align:center;'>Qty</th>" +
       "<th style='padding:10px;text-align:right;'>Price</th>" +
@@ -361,43 +366,48 @@ define([
       itemRows +
       "</tbody>" +
       "</table>" +
-      "<table style='width:100%;margin-top:16px;border-collapse:collapse;'>" +
-      "<tr><td style='padding:6px;'>Subtotal</td><td style='text-align:right;'>" +
+      "<table style='width:100%;margin-top:20px;border-collapse:collapse;font-size:14px;'>" +
+      "<tr><td style='padding:6px;color:#6b7280;'>Subtotal</td><td style='text-align:right;'>" +
       formatMoney(subtotal) +
       "</td></tr>" +
-      "<tr><td style='padding:6px;'>Discount</td><td style='text-align:right;'>" +
+      "<tr><td style='padding:6px;color:#6b7280;'>Discount</td><td style='text-align:right;'>" +
       formatMoney(discount) +
       "</td></tr>" +
-      "<tr><td style='padding:6px;'>Shipping</td><td style='text-align:right;'>" +
+      "<tr><td style='padding:6px;color:#6b7280;'>Shipping</td><td style='text-align:right;'>" +
       formatMoney(shipping) +
       "</td></tr>" +
-      "<tr><td style='padding:6px;'>Tax</td><td style='text-align:right;'>" +
+      "<tr><td style='padding:6px;color:#6b7280;'>Tax</td><td style='text-align:right;'>" +
       formatMoney(tax) +
       "</td></tr>" +
-      "<tr><td style='padding:10px;border-top:2px solid #ddd;'><strong>TOTAL</strong></td>" +
-      "<td style='text-align:right;border-top:2px solid #ddd;'><strong>" +
+      "<tr>" +
+      "<td style='padding:10px;border-top:2px solid #e5e7eb;font-weight:bold;'>TOTAL</td>" +
+      "<td style='text-align:right;border-top:2px solid #e5e7eb;font-weight:bold;'>" +
       formatMoney(total) +
-      "</strong></td></tr>" +
+      "</td>" +
+      "</tr>" +
       "</table>" +
-      "<div style='display:flex;gap:20px;margin-top:24px;flex-wrap:wrap;'>" +
-      "<div style='flex:1;min-width:250px;'>" +
-      "<h4 style='margin-bottom:6px;'>Shipping Address</h4>" +
-      "<div style='color:#555;font-size:14px;white-space:pre-line;'>" +
+      "<div style='display:flex;gap:20px;margin-top:28px;flex-wrap:wrap;'>" +
+      "<div style='flex:1;min-width:260px;'>" +
+      "<h4 style='margin-bottom:6px;color:#111827;'>Shipping</h4>" +
+      "<div style='color:#374151;font-size:14px;white-space:pre-line;'>" +
       escapeHtml(shipAddress) +
       "</div>" +
-      "<p style='margin-top:8px;'><strong>Method:</strong> " +
+      "<p style='margin-top:8px;font-size:14px;'><strong>Method:</strong> " +
       escapeHtml(shipMethod) +
       "</p>" +
       "</div>" +
-      "<div style='flex:1;min-width:250px;'>" +
-      "<h4 style='margin-bottom:6px;'>Bill To</h4>" +
-      "<div style='color:#555;font-size:14px;white-space:pre-line;'>" +
+      "<div style='flex:1;min-width:260px;'>" +
+      "<h4 style='margin-bottom:6px;color:#111827;'>Bill To</h4>" +
+      "<div style='color:#374151;font-size:14px;white-space:pre-line;'>" +
       escapeHtml(billAddress) +
       "</div>" +
       "</div>" +
       "</div>" +
-      "<p style='margin-top:24px;color:#555;'>If you are a registered customer, you can log in to see your order status.</p>" +
-      "</div></div>"
+      "<p style='margin-top:30px;font-size:13px;color:#6b7280;'>" +
+      "If you are a registered customer, you can log in to see your order status." +
+      "</p>" +
+      "</div>" +
+      "</div>"
     );
   }
 
@@ -422,7 +432,7 @@ define([
 
   function sendOrderEmail(soId, customerEmail, soRec) {
     var tranid = asString(getValueSafe(soRec, "tranid"));
-    var subject = "Order Received " + tranid;
+    var subject = "Order Received " + tranid + "has been received";
     var body = buildOrderEmailBody(soRec);
     var pdf = buildTransactionPdf(soId);
     var emailPayload = {
