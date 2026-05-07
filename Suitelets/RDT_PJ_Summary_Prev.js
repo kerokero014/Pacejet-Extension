@@ -303,7 +303,11 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     }
 
     setIfPresent(subrec, "addressee", asString(address.addressee));
-    setIfPresent(subrec, "attention", asString(address.attention));
+    setIfPresent(
+      subrec,
+      "attention",
+      asString(address.attention) || asString(address.addressee)
+    );
     setIfPresent(
       subrec,
       "addrphone",

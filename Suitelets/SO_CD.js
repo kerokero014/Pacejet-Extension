@@ -3,7 +3,7 @@
  * @NScriptType Suitelet
  * @description Create a Customer Deposit from the persisted Sales Order card portion; skip deposit for pure terms orders
  */
-define(["N/record", "N/log"], (record, log) => {
+define(["N/record", "N/search", "N/log"], (record, search, log) => {
   var SURCHARGE_ITEM_ID = 7768;
 
   function num(v) {
@@ -17,6 +17,17 @@ define(["N/record", "N/log"], (record, log) => {
 
   function asBool(v) {
     return v === true || v === "T" || v === "true" || v === 1 || v === "1";
+  }
+
+  // Attempts setValue; logs and returns false instead of throwing for non-critical fields
+  function safeSetValue(rec, fieldId, value, label) {
+    try {
+      rec.setValue({ fieldId: fieldId, value: value });
+      return true;
+    } catch (e) {
+      log.debug("safeSetValue skipped", { field: label || fieldId, error: e.message });
+      return false;
+    }
   }
 
   function getLineCountSafe(rec, sublistId) {
@@ -72,7 +83,6 @@ define(["N/record", "N/log"], (record, log) => {
     var shipping = num(soRec.getValue({ fieldId: "shippingcost" }));
     var tax = num(soRec.getValue({ fieldId: "taxtotal" }));
     var total = num(soRec.getValue({ fieldId: "total" }));
-
     var computedTotal = round2(subtotal + surcharge + shipping + tax);
 
     return {
@@ -98,10 +108,7 @@ define(["N/record", "N/log"], (record, log) => {
       });
 
       var amounts = readSalesOrderAmounts(soRec);
-      last = {
-        soRec: soRec,
-        amounts: amounts
-      };
+      last = { soRec: soRec, amounts: amounts };
 
       log.debug("SO amount read attempt", {
         soId: soId,
@@ -115,17 +122,11 @@ define(["N/record", "N/log"], (record, log) => {
       });
 
       if (Math.abs(amounts.total - amounts.computedTotal) < 0.01) {
-        return {
-          soRec: soRec,
-          amounts: amounts
-        };
+        return { soRec: soRec, amounts: amounts };
       }
 
       if (amounts.computedTotal > amounts.total + 0.01) {
-        return {
-          soRec: soRec,
-          amounts: amounts
-        };
+        return { soRec: soRec, amounts: amounts };
       }
     }
 
@@ -143,14 +144,8 @@ define(["N/record", "N/log"], (record, log) => {
 
   function readSplitAmounts(soRec) {
     var useTerms = asBool(soRec.getValue({ fieldId: "custbody_sc_use_terms" }));
-
-    var cardPortion = round2(
-      num(soRec.getValue({ fieldId: "custbody_card_portion" }))
-    );
-
-    var termsPortion = round2(
-      num(soRec.getValue({ fieldId: "custbody_terms_portion" }))
-    );
+    var cardPortion = round2(num(soRec.getValue({ fieldId: "custbody_card_portion" })));
+    var termsPortion = round2(num(soRec.getValue({ fieldId: "custbody_terms_portion" })));
 
     return {
       useTerms: useTerms,
@@ -163,7 +158,6 @@ define(["N/record", "N/log"], (record, log) => {
     var split = readSplitAmounts(soRec);
     var soTotal = round2(num(amounts && amounts.total));
 
-    // Card-only
     if (!split.useTerms) {
       return {
         mode: "card",
@@ -174,25 +168,15 @@ define(["N/record", "N/log"], (record, log) => {
       };
     }
 
-    // Terms-only or Hybrid
     var cardAmount = round2(Math.max(0, Math.min(split.cardPortion, soTotal)));
 
     if (cardAmount <= 0) {
-      return {
-        mode: "terms",
-        depositAmount: 0,
-        split: split
-      };
+      return { mode: "terms", depositAmount: 0, split: split };
     }
 
-    return {
-      mode: "hybrid",
-      depositAmount: cardAmount,
-      split: split
-    };
+    return { mode: "hybrid", depositAmount: cardAmount, split: split };
   }
 
-  // ---------- extract card meta from SO paymentmethods ----------
   function extractCardMetaFromSO(soRec) {
     var meta = {
       hasCard: false,
@@ -207,19 +191,11 @@ define(["N/record", "N/log"], (record, log) => {
 
       for (var i = 0; i < lineCount; i++) {
         var type = (
-          soRec.getSublistValue({
-            sublistId: "paymentmethods",
-            fieldId: "type",
-            line: i
-          }) || ""
+          soRec.getSublistValue({ sublistId: "paymentmethods", fieldId: "type", line: i }) || ""
         ).toLowerCase();
 
         var name =
-          soRec.getSublistValue({
-            sublistId: "paymentmethods",
-            fieldId: "name",
-            line: i
-          }) || "";
+          soRec.getSublistValue({ sublistId: "paymentmethods", fieldId: "name", line: i }) || "";
 
         var isPaypal = soRec.getSublistValue({
           sublistId: "paymentmethods",
@@ -238,32 +214,13 @@ define(["N/record", "N/log"], (record, log) => {
           name.toLowerCase().indexOf("discover") > -1
         ) {
           meta.hasCard = true;
-
           meta.paymentMethodId =
-            soRec.getSublistValue({
-              sublistId: "paymentmethods",
-              fieldId: "paymentmethod",
-              line: i
-            }) || null;
-
+            soRec.getSublistValue({ sublistId: "paymentmethods", fieldId: "paymentmethod", line: i }) || null;
           meta.paymentMethodName = name || null;
-
           meta.profileId =
-            soRec.getSublistValue({
-              sublistId: "paymentmethods",
-              fieldId: "paymentoption",
-              line: i
-            }) ||
-            soRec.getSublistValue({
-              sublistId: "paymentmethods",
-              fieldId: "creditcard",
-              line: i
-            }) ||
-            soRec.getSublistValue({
-              sublistId: "paymentmethods",
-              fieldId: "paymentinstrument",
-              line: i
-            }) ||
+            soRec.getSublistValue({ sublistId: "paymentmethods", fieldId: "paymentoption", line: i }) ||
+            soRec.getSublistValue({ sublistId: "paymentmethods", fieldId: "creditcard", line: i }) ||
+            soRec.getSublistValue({ sublistId: "paymentmethods", fieldId: "paymentinstrument", line: i }) ||
             null;
 
           log.debug("Extracted card meta from SO line", {
@@ -284,76 +241,114 @@ define(["N/record", "N/log"], (record, log) => {
     return meta;
   }
 
-  // ---------- write card meta into deposit custom fields ----------
   function applyCardMetaToDeposit(depRec, cardMeta) {
     if (!depRec || !cardMeta) return;
 
     try {
       if (cardMeta.hasCard) {
         if (cardMeta.paymentMethodId) {
-          depRec.setValue({
-            fieldId: "custbody_rdt_cc_pm_id",
-            value: String(cardMeta.paymentMethodId)
-          });
+          safeSetValue(depRec, "custbody_rdt_cc_pm_id", String(cardMeta.paymentMethodId), "cc_pm_id");
         }
         if (cardMeta.paymentMethodName) {
-          depRec.setValue({
-            fieldId: "custbody_rdt_cc_pm_name",
-            value: cardMeta.paymentMethodName
-          });
+          safeSetValue(depRec, "custbody_rdt_cc_pm_name", cardMeta.paymentMethodName, "cc_pm_name");
         }
         if (cardMeta.profileId) {
-          depRec.setValue({
-            fieldId: "custbody_rdt_cc_profile",
-            value: String(cardMeta.profileId)
-          });
+          safeSetValue(depRec, "custbody_rdt_cc_profile", String(cardMeta.profileId), "cc_profile");
         }
       } else {
-        try {
-          depRec.setValue({ fieldId: "custbody_rdt_cc_pm_id", value: "" });
-        } catch (_) {}
-        try {
-          depRec.setValue({ fieldId: "custbody_rdt_cc_pm_name", value: "" });
-        } catch (_) {}
-        try {
-          depRec.setValue({ fieldId: "custbody_rdt_cc_profile", value: "" });
-        } catch (_) {}
+        safeSetValue(depRec, "custbody_rdt_cc_pm_id", "", "cc_pm_id");
+        safeSetValue(depRec, "custbody_rdt_cc_pm_name", "", "cc_pm_name");
+        safeSetValue(depRec, "custbody_rdt_cc_profile", "", "cc_profile");
       }
     } catch (e) {
       log.error("applyCardMetaToDeposit error", e);
     }
   }
 
-  // ---------- make sure deposit does NOT try to hit the gateway ----------
   function prepareNonProcessingDeposit(depRec) {
     if (!depRec) return;
+    safeSetValue(depRec, "chargeit", false, "chargeit");
+  }
 
+  // Returns the first Customer Deposit already linked to this SO, or null
+  function findExistingDeposit(soId) {
     try {
-      depRec.setValue({
-        fieldId: "chargeit",
-        value: false
+      var found = null;
+      search
+        .create({
+          type: search.Type.CUSTOMER_DEPOSIT,
+          filters: [["salesorder", "anyof", String(soId)]],
+          columns: [
+            search.createColumn({ name: "internalid" }),
+            search.createColumn({ name: "amount" })
+          ]
+        })
+        .run()
+        .each(function (r) {
+          found = {
+            id: r.id,
+            amount: num(r.getValue({ name: "amount" }))
+          };
+          return false; // stop after first match
+        });
+      return found;
+    } catch (e) {
+      log.error("findExistingDeposit error — proceeding with creation", {
+        soId: soId,
+        error: e.message
       });
-    } catch (e) {}
+      return null; // non-fatal: if search fails, attempt creation anyway
+    }
+  }
 
-    // DO NOT clear sourced payment fields.
-    // NetSuite already sourced these from:
-    // - Sales Order
-    // - Customer payment profile
-    // - Stored payment instrument
-    //
-    // Keeping them allows the Customer Deposit UI
-    // to display:
-    // - Payment Method
-    // - Payment Processing Profile
-    // - Masked Credit Card
-    // - Cardholder Name
-    // - Billing Address
-    // - Expiration
+  // Creates the deposit record via transform (preferred) or manual create (fallback)
+  function buildDepositRecord(soId, customerId, modeRef) {
+    try {
+      var dep = record.transform({
+        fromType: record.Type.SALES_ORDER,
+        fromId: soId,
+        toType: record.Type.CUSTOMER_DEPOSIT,
+        isDynamic: true
+      });
+      modeRef.value = "transform";
+      return dep;
+    } catch (transformErr) {
+      log.error("SO->CD transform failed; falling back to manual create", {
+        soId: soId,
+        error: transformErr.message
+      });
+    }
+
+    // Fallback: manual create — no automatic salesorder link, but the deposit is still recorded
+    var dep = record.create({
+      type: record.Type.CUSTOMER_DEPOSIT,
+      isDynamic: true
+    });
+    safeSetValue(dep, "customer", customerId, "customer");
+    modeRef.value = "manual";
+    return dep;
   }
 
   function createDepositForOrder(soId) {
-    if (!soId) {
-      throw new Error("Missing soId parameter");
+    soId = parseInt(soId, 10);
+    if (!soId || isNaN(soId)) {
+      throw new Error("Invalid soId: " + soId);
+    }
+
+    // Idempotency: if a CD already exists for this SO, return it instead of creating a duplicate
+    var existing = findExistingDeposit(soId);
+    if (existing) {
+      log.debug("Customer Deposit already exists for SO — skipping creation", {
+        soId: soId,
+        depositId: existing.id,
+        amount: existing.amount
+      });
+      return {
+        action: "already_exists",
+        soId: soId,
+        depositId: existing.id,
+        depositAmount: existing.amount
+      };
     }
 
     var soInfo = getBestSalesOrderTotal(soId);
@@ -368,16 +363,15 @@ define(["N/record", "N/log"], (record, log) => {
     var shipping = amounts.shipping;
     var surcharge = amounts.surcharge;
     var tax = amounts.tax;
-    var salesOrderTotal = soInfo.salesOrderTotal;
+    var salesOrderTotal = soInfo.salesOrderTotal || amounts.total;
 
     var depositDecision = resolveDepositAmount(soRec, amounts);
     var depositAmount = depositDecision.depositAmount;
     var paymentMode = depositDecision.mode;
     var split = depositDecision.split;
-
     var cardMeta = extractCardMetaFromSO(soRec);
 
-    log.debug("Creating NEW Customer Deposit from SO payment split", {
+    log.debug("Creating Customer Deposit", {
       soId: soId,
       customerId: customerId,
       currencyId: currencyId,
@@ -393,97 +387,43 @@ define(["N/record", "N/log"], (record, log) => {
     });
 
     if (!customerId) {
-      throw new Error("No customer on SO; cannot create Customer Deposit");
+      throw new Error("No customer on SO " + soId + "; cannot create Customer Deposit");
     }
 
     if (depositAmount <= 0) {
-      log.debug("Skipping Customer Deposit creation: no card portion", {
+      log.debug("Skipping Customer Deposit: no card portion", {
         soId: soId,
         paymentMode: paymentMode,
-        split: split,
-        salesOrderAmounts: amounts
+        split: split
       });
-
       return {
         action: "skipped",
         reason: "No card portion on Sales Order",
         soId: soId,
         depositAmount: 0,
         salesOrderTotal: salesOrderTotal,
-        salesOrderAmounts: {
-          subtotal: subtotal,
-          surcharge: surcharge,
-          shipping: shipping,
-          tax: tax,
-          total: salesOrderTotal
-        },
+        salesOrderAmounts: { subtotal: subtotal, surcharge: surcharge, shipping: shipping, tax: tax, total: salesOrderTotal },
         paymentMode: paymentMode,
         split: split,
         cardMeta: cardMeta
       };
     }
 
-    var dep;
-    var depositCreationMode = "manual";
+    var modeRef = { value: null };
+    var dep = buildDepositRecord(soId, customerId, modeRef);
+    var depositCreationMode = modeRef.value;
 
-    dep = record.create({
-      type: record.Type.CUSTOMER_DEPOSIT,
-      isDynamic: true
-    });
+    // Non-critical fields — failures are logged but won't abort
+    if (currencyId) safeSetValue(dep, "currency", currencyId, "currency");
+    if (locationId) safeSetValue(dep, "location", locationId, "location");
+    safeSetValue(dep, "undepfunds", "T", "undepfunds");
 
-    dep.setValue({
-      fieldId: "customer",
-      value: customerId
-    });
-
-    try {
-      dep.setValue({
-        fieldId: "salesorder",
-        value: soId
-      });
-    } catch (salesOrderLinkError) {
-      log.error("Could not link Customer Deposit to SO", {
-        soId: soId,
-        customerId: customerId,
-        paymentMode: paymentMode,
-        depositAmount: depositAmount,
-        split: split,
-        error: salesOrderLinkError
-      });
-      throw salesOrderLinkError;
+    // Payment amount is critical — abort if it can't be set
+    if (!safeSetValue(dep, "payment", depositAmount, "payment")) {
+      throw new Error(
+        "Failed to set payment amount " + depositAmount + " on Customer Deposit for SO " + soId
+      );
     }
-
-    if (currencyId) {
-      try {
-        dep.setValue({
-          fieldId: "currency",
-          value: currencyId
-        });
-      } catch (e) {
-        log.debug("Could not set deposit currency", e);
-      }
-    }
-
-    if (locationId) {
-      try {
-        dep.setValue({
-          fieldId: "location",
-          value: locationId
-        });
-      } catch (e) {
-        log.debug("Could not set deposit location", e);
-      }
-    }
-
-    dep.setValue({
-      fieldId: "payment",
-      value: depositAmount
-    });
-
-    dep.setValue({
-      fieldId: "undepfunds",
-      value: "T"
-    });
 
     prepareNonProcessingDeposit(dep);
     applyCardMetaToDeposit(dep, cardMeta);
@@ -493,17 +433,12 @@ define(["N/record", "N/log"], (record, log) => {
       ignoreMandatoryFields: true
     });
 
-    try {
-      record.submitFields({
-        type: record.Type.CUSTOMER_DEPOSIT,
-        id: depId,
-        values: {
-          salesorder: soId
-        }
-      });
-    } catch (e) {
-      log.error("Could not force salesorder linkage on Customer Deposit", e);
-    }
+    log.audit("Customer Deposit created", {
+      soId: soId,
+      depositId: depId,
+      depositAmount: depositAmount,
+      depositCreationMode: depositCreationMode
+    });
 
     return {
       action: "created",
@@ -512,13 +447,7 @@ define(["N/record", "N/log"], (record, log) => {
       depositAmount: depositAmount,
       depositCreationMode: depositCreationMode,
       salesOrderTotal: salesOrderTotal,
-      salesOrderAmounts: {
-        subtotal: subtotal,
-        surcharge: surcharge,
-        shipping: shipping,
-        tax: tax,
-        total: salesOrderTotal
-      },
+      salesOrderAmounts: { subtotal: subtotal, surcharge: surcharge, shipping: shipping, tax: tax, total: salesOrderTotal },
       paymentMode: paymentMode,
       split: split,
       cardMeta: cardMeta
@@ -539,55 +468,27 @@ define(["N/record", "N/log"], (record, log) => {
       if (req.method === "POST" && !soId) {
         try {
           var body = JSON.parse(req.body || "{}");
-          soId =
-            body.soId || body.salesorderid || body.orderid || body.internalid;
+          soId = body.soId || body.salesorderid || body.orderid || body.internalid;
         } catch (_e) {}
       }
 
       if (!soId) {
-        res.setHeader({
-          name: "Content-Type",
-          value: "application/json"
-        });
+        res.setHeader({ name: "Content-Type", value: "application/json" });
         res.write(
-          JSON.stringify({
-            ok: false,
-            error: {
-              name: "MISSING_SO_ID",
-              message: "Missing soId parameter"
-            }
-          })
+          JSON.stringify({ ok: false, error: { name: "MISSING_SO_ID", message: "Missing soId parameter" } })
         );
         return;
       }
 
       var result = createDepositForOrder(soId);
 
-      res.setHeader({
-        name: "Content-Type",
-        value: "application/json"
-      });
-      res.write(
-        JSON.stringify({
-          ok: true,
-          soId: soId,
-          result: result
-        })
-      );
+      res.setHeader({ name: "Content-Type", value: "application/json" });
+      res.write(JSON.stringify({ ok: true, soId: soId, result: result }));
     } catch (e) {
       log.error("Suitelet error in SO -> Customer Deposit create", e);
-      res.setHeader({
-        name: "Content-Type",
-        value: "application/json"
-      });
+      res.setHeader({ name: "Content-Type", value: "application/json" });
       res.write(
-        JSON.stringify({
-          ok: false,
-          error: {
-            name: e.name || "",
-            message: e.message || String(e)
-          }
-        })
+        JSON.stringify({ ok: false, error: { name: e.name || "", message: e.message || String(e) } })
       );
     }
   }
