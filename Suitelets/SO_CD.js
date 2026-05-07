@@ -325,26 +325,30 @@ define(["N/record", "N/log"], (record, log) => {
   }
 
   // ---------- make sure deposit does NOT try to hit the gateway ----------
-  function neutralizeGatewayFields(depRec) {
+  function prepareNonProcessingDeposit(depRec) {
     if (!depRec) return;
 
-    function safeSet(fieldId, value) {
-      try {
-        depRec.setValue({ fieldId: fieldId, value: value });
-      } catch (_e) {}
-    }
+    try {
+      depRec.setValue({
+        fieldId: "chargeit",
+        value: false
+      });
+    } catch (e) {}
 
-    safeSet("chargeit", "F");
-    safeSet("ccapproved", "F");
-
-    safeSet("paymentmethod", "");
-    safeSet("creditcard", "");
-    safeSet("creditcardprocessor", "");
-    safeSet("pnrefnum", "");
-    safeSet("authcode", "");
-    safeSet("ccname", "");
-    safeSet("ccexpiredate", "");
-    safeSet("ccnumber", "");
+    // DO NOT clear sourced payment fields.
+    // NetSuite already sourced these from:
+    // - Sales Order
+    // - Customer payment profile
+    // - Stored payment instrument
+    //
+    // Keeping them allows the Customer Deposit UI
+    // to display:
+    // - Payment Method
+    // - Payment Processing Profile
+    // - Masked Credit Card
+    // - Cardholder Name
+    // - Billing Address
+    // - Expiration
   }
 
   function createDepositForOrder(soId) {
@@ -481,7 +485,7 @@ define(["N/record", "N/log"], (record, log) => {
       value: "T"
     });
 
-    neutralizeGatewayFields(dep);
+    prepareNonProcessingDeposit(dep);
     applyCardMetaToDeposit(dep, cardMeta);
 
     var depId = dep.save({
