@@ -350,18 +350,13 @@ define(["N/record", "N/search", "N/log"], (record, search, log) => {
   function buildDepositRecord(soId, customerId, modeRef) {
     var dep = record.create({
       type: record.Type.CUSTOMER_DEPOSIT,
-      isDynamic: true
+      isDynamic: false
     });
-    safeSetValue(dep, "customer", customerId, "customer");
 
-    var soLinked = safeSetValue(dep, "salesorder", soId, "salesorder");
-    if (!soLinked) {
-      throw new Error(
-        "Failed to link salesorder " + soId + " on Customer Deposit record"
-      );
-    }
+    dep.setValue({ fieldId: "customer", value: customerId });
+    dep.setValue({ fieldId: "salesorder", value: soId });
 
-    modeRef.value = "manual";
+    modeRef.value = "create";
     return dep;
   }
 
@@ -460,7 +455,7 @@ define(["N/record", "N/search", "N/log"], (record, search, log) => {
     // Non-critical fields — failures are logged but won't abort
     if (currencyId) safeSetValue(dep, "currency", currencyId, "currency");
     if (locationId) safeSetValue(dep, "location", locationId, "location");
-    safeSetValue(dep, "account", 110, "account"); // Unapproved Customer Payment account
+    safeSetValue(dep, "account", 321, "account");
 
     // Payment amount is critical — abort if it can't be set
     if (!safeSetValue(dep, "payment", depositAmount, "payment")) {
@@ -510,6 +505,11 @@ define(["N/record", "N/search", "N/log"], (record, search, log) => {
     var req = context.request;
     var res = context.response;
 
+    log.debug("SO_CD Suitelet called", {
+      method: req.method,
+      parameters: req.parameters
+    });
+
     try {
       var soId =
         req.parameters.soId ||
@@ -526,6 +526,7 @@ define(["N/record", "N/search", "N/log"], (record, search, log) => {
       }
 
       if (!soId) {
+        log.error("SO_CD missing soId", { method: req.method, parameters: req.parameters });
         res.setHeader({ name: "Content-Type", value: "application/json" });
         res.write(
           JSON.stringify({
@@ -536,12 +537,65 @@ define(["N/record", "N/search", "N/log"], (record, search, log) => {
         return;
       }
 
-      var result = createDepositForOrder(soId);
+      var result = null;
+      var lastError = null;
+      var MAX_ATTEMPTS = 3;
+
+      for (var attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+          result = createDepositForOrder(soId);
+          lastError = null;
+          if (attempt > 1) {
+            log.audit("Customer Deposit succeeded after retry", {
+              soId: soId,
+              attempt: attempt
+            });
+          }
+          break;
+        } catch (e) {
+          lastError = e;
+          log.error("Customer Deposit attempt " + attempt + " failed", {
+            soId: soId,
+            attempt: attempt,
+            error: e.message,
+            name: e.name
+          });
+        }
+      }
 
       res.setHeader({ name: "Content-Type", value: "application/json" });
+
+      if (lastError) {
+        log.error("Customer Deposit all attempts exhausted", {
+          soId: soId,
+          maxAttempts: MAX_ATTEMPTS,
+          error: lastError.message,
+          name: lastError.name
+        });
+        res.write(
+          JSON.stringify({
+            ok: false,
+            error: {
+              name: lastError.name || "",
+              message: lastError.message || String(lastError)
+            }
+          })
+        );
+        return;
+      }
+
+      log.audit("SO_CD Suitelet success", {
+        soId: soId,
+        action: result && result.action,
+        depositId: result && result.depositId,
+        depositAmount: result && result.depositAmount
+      });
       res.write(JSON.stringify({ ok: true, soId: soId, result: result }));
     } catch (e) {
-      log.error("Suitelet error in SO -> Customer Deposit create", e);
+      log.error("Suitelet unhandled error in SO -> Customer Deposit create", {
+        error: e.message,
+        name: e.name
+      });
       res.setHeader({ name: "Content-Type", value: "application/json" });
       res.write(
         JSON.stringify({
