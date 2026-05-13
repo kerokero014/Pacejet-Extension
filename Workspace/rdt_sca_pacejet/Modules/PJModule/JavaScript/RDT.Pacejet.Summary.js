@@ -199,7 +199,10 @@ define("RDT.Pacejet.Summary", [
     var hasBaseSubtotal = hasSummaryValue(summary, baseSubtotalKeys);
     var subtotal = hasBaseSubtotal
       ? asNumber(getSummaryValue(summary, baseSubtotalKeys), fallbackSubtotal)
-      : asNumber(getSummaryValue(summary || {}, subtotalKeys), fallbackSubtotal);
+      : asNumber(
+          getSummaryValue(summary || {}, subtotalKeys),
+          fallbackSubtotal
+        );
     var surcharge = getKnownSurcharge(summary);
 
     if (
@@ -551,15 +554,33 @@ define("RDT.Pacejet.Summary", [
       taxTotal = hasSummaryValue(authoritativeSummary, taxKeys)
         ? asNumber(getSummaryValue(authoritativeSummary, taxKeys), 0)
         : asNumber(getSummaryValue(summary, taxKeys), 0);
+
+      // Suitelet tax is authoritative — already covers products + surcharge + shipping
+      surchargeSummary = PacejetSurcharge.buildSummary(
+        subtotal,
+        shipping,
+        taxTotal,
+        {
+          taxIncludesAll: true
+        }
+      );
     } else {
       subtotal = getBaseSubtotal(summary, 0);
       shipping = asNumber(resolvedShipping.amount, 0);
       taxTotal = asNumber(getSummaryValue(summary, taxKeys), 0);
-    }
 
-    surchargeSummary = PacejetSurcharge.buildSummary(subtotal, shipping, taxTotal, {
-      taxIncludesSurcharge: !!authoritativeSummary
-    });
+      // No suitelet data yet — infer from native NetSuite summary.
+      // Use product-only basis for rate inference, and flag shipping as taxed (CA).
+      surchargeSummary = PacejetSurcharge.buildSummary(
+        subtotal,
+        shipping,
+        taxTotal,
+        {
+          taxIncludesSurcharge: false,
+          shippingTaxed: true
+        }
+      );
+    }
 
     summary.handlingcost = 0;
     summary.handlingCost = 0;
@@ -693,10 +714,14 @@ define("RDT.Pacejet.Summary", [
         summary.taxAmount ||
         0
     );
+    var authoritativeSummaryForDebug = getPersistedStateSummaryForOrder(order);
     var surchargeSummary = PacejetSurcharge.buildSummary(
       subtotal,
       shipping,
-      taxAmount
+      taxAmount,
+      authoritativeSummaryForDebug
+        ? { taxIncludesAll: true }
+        : { taxIncludesSurcharge: false, shippingTaxed: true }
     );
     var payload = {
       stage: stage,
@@ -738,11 +763,26 @@ define("RDT.Pacejet.Summary", [
       ? asNumber(authoritativeSummary.shipping, 0)
       : asNumber(resolvedShipping.amount, 0);
     var subtotal = PacejetSurcharge.asNumber(summary.subtotal || 0, 0);
+    var taxForSummary = authoritativeSummary
+      ? asNumber(
+          getSummaryValue(authoritativeSummary, [
+            "taxtotal",
+            "taxTotal",
+            "tax",
+            "taxamount",
+            "taxAmount"
+          ]),
+          tax
+        )
+      : tax;
+
     var surchargeSummary = PacejetSurcharge.buildSummary(
       subtotal,
       shipping,
-      tax,
-      { taxIncludesSurcharge: true }
+      taxForSummary,
+      authoritativeSummary
+        ? { taxIncludesAll: true }
+        : { taxIncludesSurcharge: false, shippingTaxed: true }
     );
 
     var data = {
@@ -1024,7 +1064,8 @@ define("RDT.Pacejet.Summary", [
   }
 
   function clearSummaryLoadingState($container) {
-    $container = $container && $container.length ? $container : getSummaryContainer();
+    $container =
+      $container && $container.length ? $container : getSummaryContainer();
     if (!$container.length) return;
 
     $container
@@ -1070,11 +1111,11 @@ define("RDT.Pacejet.Summary", [
           ".order-wizard-cart-summary-estimated-tax, " +
           ".rdt-pj-tax-row"
       )
-      .closest("p, tr, li, .order-wizard-cart-summary-grid, .order-wizard-cart-summary-row");
+      .closest(
+        "p, tr, li, .order-wizard-cart-summary-grid, .order-wizard-cart-summary-row"
+      );
 
-    $nativeTaxRows
-      .addClass("rdt-pj-summary-native-tax-loading")
-      .hide();
+    $nativeTaxRows.addClass("rdt-pj-summary-native-tax-loading").hide();
 
     $row = $container.find(".rdt-pj-summary-loading-row").first();
     if (!$row.length) {
@@ -1085,9 +1126,13 @@ define("RDT.Pacejet.Summary", [
       $totalBlock = $container.find(".order-wizard-cart-summary-total");
 
       if ($shippingBlock.length) {
-        $shippingBlock.first().after(getSummaryLoadingMarkup("Recalculating Tax", false));
+        $shippingBlock
+          .first()
+          .after(getSummaryLoadingMarkup("Recalculating Tax", false));
       } else if ($totalBlock.length) {
-        $totalBlock.first().before(getSummaryLoadingMarkup("Recalculating Tax", false));
+        $totalBlock
+          .first()
+          .before(getSummaryLoadingMarkup("Recalculating Tax", false));
       } else {
         $container.append(getSummaryLoadingMarkup("Recalculating Tax", false));
       }

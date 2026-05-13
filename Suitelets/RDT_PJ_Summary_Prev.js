@@ -195,10 +195,15 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     var i;
 
     try {
-      count = rec.getLineCount({ sublistId: "taxdetails" }) || 0;
-    } catch (_e) {
+      count = rec.getLineCount({ sublistId: "taxdetails" });
+
+      if (count === -1 || count == null) {
+        throw new Error("Invalid taxdetails count returned");
+      }
+    } catch (e) {
       return {
         available: false,
+        error: e.message || String(e),
         count: 0,
         lines: []
       };
@@ -395,6 +400,7 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     }
 
     so.selectNewLine({ sublistId: "item" });
+
     so.setCurrentSublistValue({
       sublistId: "item",
       fieldId: "item",
@@ -433,31 +439,16 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
       });
     } catch (_e_amount) {}
 
-    try {
-      so.setCurrentSublistValue({
-        sublistId: "item",
-        fieldId: "description",
-        value: "Surcharge 2%"
-      });
-    } catch (_e_description) {}
-
-    try {
-      so.setCurrentSublistValue({
-        sublistId: "item",
-        fieldId: "custcol_rdt_surcharge_rate",
-        value: "2%"
-      });
-    } catch (_e_custom_rate) {}
-
     so.commitLine({ sublistId: "item" });
+
     return normalizedAmount;
   }
 
   function addSurchargeLines(so, data) {
     var requestedTotals =
       data && data.totals && typeof data.totals === "object" ? data.totals : {};
+
     var baseSubtotal = asNumber(requestedTotals.subtotal, 0);
-    var surchargeAmount;
 
     if (baseSubtotal <= 0) {
       try {
@@ -467,7 +458,7 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
       }
     }
 
-    surchargeAmount = round2(baseSubtotal * SURCHARGE_RATE);
+    var surchargeAmount = round2(baseSubtotal * SURCHARGE_RATE);
 
     if (surchargeAmount <= 0) {
       return {
@@ -500,15 +491,19 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     if (!/^\d+$/.test(entityId)) {
       throw new Error("customerId is required for preview tax calculation");
     }
+
     if (!shipmethod) {
       throw new Error("shipmethod is required");
     }
+
     if (amount <= 0) {
       throw new Error("pacejetAmount must be > 0");
     }
+
     if (!lines.length) {
       throw new Error("At least one preview line is required");
     }
+
     if (!address || !asString(address.country) || !asString(address.zip)) {
       throw new Error(
         "shippingAddress.country and shippingAddress.zip are required"
@@ -521,33 +516,6 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     });
 
     setIfPresent(so, "entity", Number(entityId));
-
-    if (data.subsidiary) {
-      try {
-        so.setValue({
-          fieldId: "subsidiary",
-          value: Number(data.subsidiary)
-        });
-      } catch (_e) {}
-    }
-
-    if (data.currency) {
-      try {
-        so.setValue({
-          fieldId: "currency",
-          value: Number(data.currency)
-        });
-      } catch (_e) {}
-    }
-
-    if (data.customform) {
-      try {
-        so.setValue({
-          fieldId: "customform",
-          value: Number(data.customform)
-        });
-      } catch (_e) {}
-    }
 
     applyShippingAddress(so, address);
 
@@ -566,6 +534,7 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     });
 
     addLines(so, lines, locationId);
+
     var surchargeSummary = addSurchargeLines(so, data);
 
     so.setValue({
@@ -576,10 +545,15 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     applyAccessorialBodyFields(so, data);
 
     try {
-      so.setValue({
-        fieldId: "taxdetailsoverride",
-        value: false
-      });
+      so.setValue({ fieldId: "taxdetailsoverride", value: false });
+    } catch (_e) {}
+
+    try {
+      so.setValue({ fieldId: "taxamountoverride", value: 0 });
+    } catch (_e) {}
+
+    try {
+      so.setValue({ fieldId: "taxtotaloverride", value: 0 });
     } catch (_e) {}
 
     so.setValue({
@@ -594,43 +568,107 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     };
   }
 
+  function saveAndReload(so) {
+    var savedId = so.save({
+      enableSourcing: true,
+      ignoreMandatoryFields: true
+    });
+
+    var reloaded = record.load({
+      type: record.Type.SALES_ORDER,
+      id: savedId,
+      isDynamic: false
+    });
+
+    return { savedId: savedId, reloaded: reloaded };
+  }
+
+  function buildBaselineSalesOrder(data, surchargeSummary) {
+    // Identical to buildPreviewSalesOrder but with $0 shipping
+    // Re-uses all the same field/line setup, just skips shippingcost
+    var shipmethod = asString(data.shipmethod).trim();
+    var quoteJson = asString(data.quoteJson);
+    var locationId = resolveLocationId(data, quoteJson);
+    var lines = normalizeLines(data.lines);
+    var address = data.shippingAddress || {};
+    var entityId = resolveEntityId(data);
+
+    var so = record.create({
+      type: record.Type.SALES_ORDER,
+      isDynamic: true
+    });
+
+    setIfPresent(so, "entity", Number(entityId));
+    applyShippingAddress(so, address);
+
+    if (locationId) {
+      try {
+        so.setValue({ fieldId: "location", value: Number(locationId) });
+      } catch (_e) {}
+    }
+
+    so.setValue({ fieldId: "shipmethod", value: Number(shipmethod) });
+
+    addLines(so, lines, locationId);
+
+    // Re-add surcharge lines using the already-computed summary
+    if (surchargeSummary.surcharge > 0) {
+      appendSubtotalLine(so);
+      appendSurchargeLine(so, surchargeSummary.surcharge);
+    }
+
+    // $0 shipping — we only want the product tax rate
+    so.setValue({ fieldId: "shippingcost", value: 0 });
+
+    applyAccessorialBodyFields(so, data);
+
+    try {
+      so.setValue({ fieldId: "taxdetailsoverride", value: false });
+    } catch (_e) {}
+    try {
+      so.setValue({ fieldId: "taxamountoverride", value: 0 });
+    } catch (_e) {}
+    try {
+      so.setValue({ fieldId: "taxtotaloverride", value: 0 });
+    } catch (_e) {}
+
+    so.setValue({
+      fieldId: "memo",
+      value: "preview-temp-baseline-" + Date.now()
+    });
+
+    return so;
+  }
+
   function finalizePreviewViaSave(data) {
     var requestedTotals =
       data && data.totals && typeof data.totals === "object" ? data.totals : {};
-
     var requestedSubtotal = asNumber(requestedTotals.subtotal, 0);
     var requestedShipping = asNumber(requestedTotals.shipping, 0);
-    var requestedTax = asNumber(requestedTotals.tax, 0);
-    var requestedTotal = asNumber(requestedTotals.total, 0);
 
     var preview = buildPreviewSalesOrder(data);
     var so = preview.record;
-    var previewSurchargeSummary = preview.surchargeSummary || {};
     var calculateTaxBeforeSave = tryCalculateTax(so);
-    var taxFieldBeforeSave = buildTaxFieldSnapshot(so);
-    var taxDetailsBeforeSave = getTaxDetailsSnapshot(so);
 
-    var savedId = null;
-    var reloaded = null;
+    var savedIdFull = null;
+    var savedIdBaseline = null;
+    var cleanupResult = {
+      full: { attempted: false, success: null, error: null },
+      baseline: { attempted: false, success: null, error: null }
+    };
 
     try {
-      savedId = so.save({
-        enableSourcing: true,
-        ignoreMandatoryFields: true
-      });
-
-      reloaded = record.load({
-        type: record.Type.SALES_ORDER,
-        id: savedId,
-        isDynamic: false
-      });
+      // Pass 1: Save full order (with shipping) to get NetSuite's total
+      var fullPass = saveAndReload(so);
+      savedIdFull = fullPass.savedId;
+      var reloadedFull = fullPass.reloaded;
 
       var adjustedSubtotal = asNumber(
-        getValueSafe(reloaded, "subtotal"),
+        getValueSafe(reloadedFull, "subtotal"),
         requestedSubtotal
       );
       var surcharge = asNumber(
-        previewSurchargeSummary.surcharge,
+        preview.surchargeSummary.surcharge,
         round2(requestedSubtotal * SURCHARGE_RATE)
       );
       var subtotal =
@@ -638,64 +676,108 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
           ? round2(adjustedSubtotal - surcharge)
           : adjustedSubtotal;
       var shipping = asNumber(
-        getValueSafe(reloaded, "shippingcost"),
+        getValueSafe(reloadedFull, "shippingcost"),
         requestedShipping
       );
-      var tax = asNumber(getValueSafe(reloaded, "taxtotal"), 0);
-      var total = asNumber(getValueSafe(reloaded, "total"), 0);
+      var taxFromFull = asNumber(getValueSafe(reloadedFull, "taxtotal"), 0);
+      var total = asNumber(getValueSafe(reloadedFull, "total"), 0);
 
-      if (tax === 0 && requestedTax > 0) {
-        tax = requestedTax;
-        if (!subtotal) subtotal = requestedSubtotal;
-        if (!shipping) shipping = requestedShipping;
-        total = subtotal + surcharge + shipping + tax;
-      }
+      // Pass 2: Save baseline order (with $0 shipping) to get the true product-only tax
+      var baselineSo = buildBaselineSalesOrder(data, preview.surchargeSummary);
+      var baselinePass = saveAndReload(baselineSo);
+      savedIdBaseline = baselinePass.savedId;
+      var reloadedBaseline = baselinePass.reloaded;
 
-      if (!total && (subtotal || surcharge || shipping || tax)) {
-        total = subtotal + surcharge + shipping + tax;
-      }
+      var baselineTax = asNumber(getValueSafe(reloadedBaseline, "taxtotal"), 0);
+      var baselineSubtotal = asNumber(
+        getValueSafe(reloadedBaseline, "subtotal"),
+        adjustedSubtotal
+      );
+
+      // baselineTax === 0 is valid for tax-exempt customers — trust AvaTax, do not throw.
+      // productTaxRate will be 0 for exempt customers, which is correct.
+      var productTaxRate =
+        baselineTax > 0 && baselineSubtotal > 0
+          ? baselineTax / baselineSubtotal
+          : 0;
+
+      // Determine shipping taxability by comparing baseline tax to full-order tax
+      var shippingTaxAmount = round2(taxFromFull - baselineTax);
+      var shippingAppearsTaxed = shippingTaxAmount > 0.01;
+
+      // Use AvaTax's full-pass result directly. AvaTax determines freight taxability
+      // via the tax code (FR020500 is non-taxable in CA); do not override that with a
+      // manually computed product-rate-on-shipping figure.
+      var tax = taxFromFull;
+
+      // Recompute total from components so it's always self-consistent
+      var computedTotal = round2(adjustedSubtotal + shipping + tax);
+      var taxBasis = round2(adjustedSubtotal + shipping);
+      var effectiveTaxRate =
+        taxBasis > 0 ? Math.round((tax / taxBasis) * 1000000) / 1000000 : 0;
 
       return {
         subtotal: Number(subtotal.toFixed(2)),
         baseSubtotal: Number(subtotal.toFixed(2)),
-        adjustedSubtotal: Number(round2(subtotal + surcharge).toFixed(2)),
+        adjustedSubtotal: Number(adjustedSubtotal.toFixed(2)),
         surcharge: Number(surcharge.toFixed(2)),
         shipping: Number(shipping.toFixed(2)),
         tax: Number(tax.toFixed(2)),
-        total: Number(total.toFixed(2)),
+        total: Number(computedTotal.toFixed(2)),
+        effectiveTaxRate: Math.round(effectiveTaxRate * 1000000) / 1000000,
+        taxIncludesAll: true,
         resolvedLocationId: preview.resolvedLocationId,
         diagnostics: {
-          source: "preview-temp-so-save-reload-delete",
-          requestedTotals: {
-            subtotal: requestedSubtotal,
-            shipping: requestedShipping,
-            tax: requestedTax,
-            total: requestedTotal
-          },
-          surchargeSummary: {
-            baseSubtotal: Number(subtotal.toFixed(2)),
-            surcharge: Number(surcharge.toFixed(2)),
-            adjustedSubtotal: Number(round2(subtotal + surcharge).toFixed(2))
-          },
+          source: "preview-temp-so-two-pass",
           calculateTaxBeforeSave: calculateTaxBeforeSave,
-          taxFieldSnapshotBeforeSave: taxFieldBeforeSave,
-          taxDetailsBeforeSave: taxDetailsBeforeSave,
-          taxFieldSnapshotAfterSave: buildTaxFieldSnapshot(reloaded),
-          taxDetailsAfterSave: getTaxDetailsSnapshot(reloaded),
-          temporarySalesOrderId: savedId
+          twoPassAnalysis: {
+            baselineTax: baselineTax,
+            baselineSubtotal: baselineSubtotal,
+            productTaxRate: Math.round(productTaxRate * 10000) / 100,
+            taxFromFullPass: taxFromFull,
+            shippingTaxAmount: shippingTaxAmount,
+            shippingAppearsTaxed: shippingAppearsTaxed,
+            shippingTaxApplied: shippingTaxAmount
+          },
+          taxOverrideActive:
+            asNumber(getValueSafe(reloadedFull, "taxamountoverride"), 0) ===
+            taxFromFull,
+          taxFieldSnapshotAfterSave: buildTaxFieldSnapshot(reloadedFull),
+          taxDetailsAfterSave: getTaxDetailsSnapshot(reloadedFull),
+          temporarySalesOrderIds: {
+            full: savedIdFull,
+            baseline: savedIdBaseline
+          },
+          cleanupResult: cleanupResult
         }
       };
     } finally {
-      if (savedId) {
+      if (savedIdFull) {
+        cleanupResult.full.attempted = true;
         try {
-          record.delete({
-            type: record.Type.SALES_ORDER,
-            id: savedId
+          record.delete({ type: record.Type.SALES_ORDER, id: savedIdFull });
+          cleanupResult.full.success = true;
+        } catch (e) {
+          cleanupResult.full.success = false;
+          cleanupResult.full.error = e.message || String(e);
+          log.error("Preview full SO cleanup failed", {
+            id: savedIdFull,
+            error: cleanupResult.full.error
           });
-        } catch (cleanupError) {
-          log.error("Preview temp SO cleanup failed", {
-            tempSoId: savedId,
-            error: cleanupError.message || String(cleanupError)
+        }
+      }
+
+      if (savedIdBaseline) {
+        cleanupResult.baseline.attempted = true;
+        try {
+          record.delete({ type: record.Type.SALES_ORDER, id: savedIdBaseline });
+          cleanupResult.baseline.success = true;
+        } catch (e) {
+          cleanupResult.baseline.success = false;
+          cleanupResult.baseline.error = e.message || String(e);
+          log.error("Preview baseline SO cleanup failed", {
+            id: savedIdBaseline,
+            error: cleanupResult.baseline.error
           });
         }
       }
@@ -721,6 +803,7 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     }
 
     var data;
+
     try {
       data = JSON.parse(req.body || "{}");
     } catch (_e) {
@@ -733,41 +816,14 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
     try {
       var totals = finalizePreviewViaSave(data);
 
-      log.audit("Pacejet preview temp SO response", {
-        shipmethod: data.shipmethod,
-        pacejetAmount: data.pacejetAmount,
-        resolvedLocationId: totals.resolvedLocationId,
-        customerId: data.customerId,
-        lineCount: Array.isArray(data.lines) ? data.lines.length : 0,
-        shippingAddress: data.shippingAddress,
-        totals: {
-          subtotal: totals.subtotal,
-          baseSubtotal: totals.baseSubtotal,
-          adjustedSubtotal: totals.adjustedSubtotal,
-          surcharge: totals.surcharge,
-          shipping: totals.shipping,
-          tax: totals.tax,
-          total: totals.total
-        },
-        diagnostics: totals.diagnostics
-      });
-
       return writeJson(res, 200, {
         ok: true,
         resolvedLocationId: totals.resolvedLocationId,
-        totals: {
-          subtotal: totals.subtotal,
-          baseSubtotal: totals.baseSubtotal,
-          adjustedSubtotal: totals.adjustedSubtotal,
-          surcharge: totals.surcharge,
-          shipping: totals.shipping,
-          tax: totals.tax,
-          total: totals.total
-        },
-        diagnostics: totals.diagnostics
+        totals: totals
       });
     } catch (e) {
       log.error("Pacejet preview summary failed", e);
+
       return writeJson(res, 500, {
         ok: false,
         error: e.message || String(e)

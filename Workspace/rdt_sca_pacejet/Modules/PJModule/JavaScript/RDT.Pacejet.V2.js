@@ -64,7 +64,7 @@ define("RDT.Pacejet.V2", [
     DEPOSIT_IN_FLIGHT = true;
 
     $.ajax({
-      url: DEPOSIT_SYNC_URL,
+      url: DEPOSIT_SYNC_URL + "&soId=" + encodeURIComponent(normalizedOrderId),
       type: "POST",
       contentType: "application/json",
       dataType: "json",
@@ -249,15 +249,19 @@ define("RDT.Pacejet.V2", [
       surcharge: surcharge,
       shipping: +asNumber(snapshot.shippingcost, snapshot.shipping).toFixed(2),
       tax: +asNumber(
-        snapshot.taxtotal !== undefined && snapshot.taxtotal !== null
+        responseTax !== null && responseTax !== undefined
+          ? responseTax
+          : snapshot.taxtotal !== undefined && snapshot.taxtotal !== null
           ? snapshot.taxtotal
-          : responseTax,
+          : null,
         snapshot.tax
       ).toFixed(2),
       total: +asNumber(
-        snapshot.total !== undefined && snapshot.total !== null
+        responseTotal !== null && responseTotal !== undefined
+          ? responseTotal
+          : snapshot.total !== undefined && snapshot.total !== null
           ? snapshot.total
-          : responseTotal,
+          : null,
         0
       ).toFixed(2)
     };

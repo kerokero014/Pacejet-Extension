@@ -84,9 +84,10 @@ define(["N/record", "N/search", "N/log"], (record, search, log) => {
         ? round2(adjustedSubtotal - surcharge)
         : adjustedSubtotal;
     var shipping = num(soRec.getValue({ fieldId: "shippingcost" }));
-    var tax = num(soRec.getValue({ fieldId: "taxtotal" }));
-    var total = num(soRec.getValue({ fieldId: "total" }));
-    var computedTotal = round2(subtotal + surcharge + shipping + tax);
+    var nativeTax = num(soRec.getValue({ fieldId: "taxtotal" }));
+
+    var tax = nativeTax;
+    var computedTotal = round2(adjustedSubtotal + shipping + tax);
 
     return {
       subtotal: round2(subtotal),
@@ -94,7 +95,7 @@ define(["N/record", "N/search", "N/log"], (record, search, log) => {
       surcharge: surcharge,
       shipping: round2(shipping),
       tax: round2(tax),
-      total: round2(total),
+      total: computedTotal,
       computedTotal: computedTotal
     };
   }
@@ -402,6 +403,16 @@ define(["N/record", "N/search", "N/log"], (record, search, log) => {
     var split = depositDecision.split;
     var cardMeta = extractCardMetaFromSO(soRec);
 
+    log.debug("SO pre-deposit diagnostics", {
+      soId: soId,
+      approvalStatus: soRec.getValue({ fieldId: "approvalstatus" }),
+      status: soRec.getValue({ fieldId: "status" }),
+      entity: soRec.getValue({ fieldId: "entity" }),
+      subsidiary: soRec.getValue({ fieldId: "subsidiary" }),
+      currency: soRec.getValue({ fieldId: "currency" }),
+      customForm: soRec.getValue({ fieldId: "customform" })
+    });
+
     log.debug("Creating Customer Deposit", {
       soId: soId,
       customerId: customerId,
@@ -513,6 +524,7 @@ define(["N/record", "N/search", "N/log"], (record, search, log) => {
     try {
       var soId =
         req.parameters.soId ||
+        req.parameters.orderId ||
         req.parameters.salesorderid ||
         req.parameters.orderid ||
         null;
@@ -521,7 +533,7 @@ define(["N/record", "N/search", "N/log"], (record, search, log) => {
         try {
           var body = JSON.parse(req.body || "{}");
           soId =
-            body.soId || body.salesorderid || body.orderid || body.internalid;
+            body.soId || body.orderId || body.salesorderid || body.orderid || body.internalid;
         } catch (_e) {}
       }
 

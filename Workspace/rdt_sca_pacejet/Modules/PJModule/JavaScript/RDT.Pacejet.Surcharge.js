@@ -35,13 +35,25 @@ define("RDT.Pacejet.Surcharge", [], function () {
     var sourceTax = round2(tax);
     var surchargeAmount = round2(normalizedSubtotal * SURCHARGE_RATE);
     var adjustedSubtotal = round2(normalizedSubtotal + surchargeAmount);
-    var taxableBasis = round2(normalizedSubtotal + normalizedShipping);
-    var inferredTaxRate =
-      taxableBasis > 0 && sourceTax > 0 ? sourceTax / taxableBasis : 0;
-    var surchargeTax = opts.taxIncludesSurcharge
-      ? 0
-      : round2(surchargeAmount * inferredTaxRate);
-    var normalizedTax = round2(sourceTax + surchargeTax);
+    var surchargeTax = 0; // declared at top scope so return object can always reference it
+    var shippingTax = 0;
+    var normalizedTax;
+
+    if (opts.taxIncludesAll) {
+      normalizedTax = sourceTax;
+    } else if (opts.taxIncludesSurcharge) {
+      normalizedTax = sourceTax;
+    } else {
+      var productBasis = normalizedSubtotal;
+      var inferredTaxRate =
+        productBasis > 0 && sourceTax > 0 ? sourceTax / productBasis : 0;
+      surchargeTax = round2(surchargeAmount * inferredTaxRate);
+      shippingTax = opts.shippingTaxed
+        ? round2(normalizedShipping * inferredTaxRate)
+        : 0;
+      normalizedTax = round2(sourceTax + surchargeTax + shippingTax);
+    }
+
     var total = round2(
       normalizedSubtotal + surchargeAmount + normalizedShipping + normalizedTax
     );
@@ -56,6 +68,7 @@ define("RDT.Pacejet.Surcharge", [], function () {
       tax: normalizedTax,
       sourceTax: sourceTax,
       surchargeTax: surchargeTax,
+      shippingTax: shippingTax,
       total: total,
       baseSubtotalFormatted: formatMoney(normalizedSubtotal),
       surchargeFormatted: formatMoney(surchargeAmount),

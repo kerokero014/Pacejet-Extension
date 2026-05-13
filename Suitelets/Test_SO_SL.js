@@ -150,15 +150,20 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
       surcharge > 0 && adjustedSubtotal >= surcharge
         ? round2(adjustedSubtotal - surcharge)
         : adjustedSubtotal;
+    const shipping = asNumber(data.shippingcost);
+    const nativeTax = asNumber(data.taxtotal);
+
+    const tax = nativeTax;
+    const total = round2(adjustedSubtotal + shipping + tax);
 
     return {
       subtotal: baseSubtotal,
       baseSubtotal: baseSubtotal,
       adjustedSubtotal: adjustedSubtotal,
       surcharge: surcharge,
-      shipping: asNumber(data.shippingcost),
-      tax: asNumber(data.taxtotal),
-      total: asNumber(data.total)
+      shipping: shipping,
+      tax: tax,
+      total: total
     };
   }
 
@@ -168,16 +173,13 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
 
   function chooseResponseTotals(finalSnapshot, requestedTotals, amount) {
     const snapshotTotals = buildTotalsFromSnapshot(finalSnapshot);
-    let surcharge = round2(snapshotTotals.surcharge);
     if (
       requestedTotals &&
       almostEqual(snapshotTotals.subtotal, requestedTotals.subtotal) &&
       almostEqual(snapshotTotals.shipping, amount) &&
-      almostEqual(requestedTotals.shipping, amount) &&
-      almostEqual(snapshotTotals.tax, requestedTotals.tax) &&
-      almostEqual(snapshotTotals.total, requestedTotals.total)
+      almostEqual(requestedTotals.shipping, amount)
     ) {
-      surcharge = round2(requestedTotals.subtotal * SCRIPT_PARAMETERS.surchargeRate);
+      const surcharge = round2(requestedTotals.subtotal * SCRIPT_PARAMETERS.surchargeRate);
       return {
         baseSubtotal: requestedTotals.subtotal,
         subtotal: requestedTotals.subtotal,
@@ -188,6 +190,7 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
         total: requestedTotals.total
       };
     }
+
     return snapshotTotals;
   }
 
@@ -303,10 +306,12 @@ define(["N/record", "N/log", "N/runtime"], function (record, log, runtime) {
   ) {
     const snapshotTotals = buildTotalsFromSnapshot(finalSnapshot);
     const requested = requestedTotals || null;
+    // Compare the actual NetSuite total field, not the shipping-tax-compensated value.
+    // buildTotalsFromSnapshot adds estimated shipping tax to the native taxtotal, so it
+    // always appears to match even when the tax override didn't persist in NetSuite.
     const mismatch =
       !!requested &&
-      (Math.abs(snapshotTotals.tax - requested.tax) >= 0.01 ||
-        Math.abs(snapshotTotals.total - requested.total) >= 0.01);
+      Math.abs(asNumber(finalSnapshot.total) - requested.total) >= 0.01;
 
     return {
       requestedTotals: requested,

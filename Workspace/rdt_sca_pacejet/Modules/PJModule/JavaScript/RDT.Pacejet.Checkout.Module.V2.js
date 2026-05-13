@@ -870,7 +870,9 @@ define("RDT.Pacejet.Checkout.Module.V2", [
         surcharge: Number(response.totals.surcharge || 0),
         shipping: Number(response.totals.shipping || 0),
         tax: Number(response.totals.tax || 0),
-        total: Number(response.totals.total || 0)
+        total: Number(response.totals.total || 0),
+        effectiveTaxRate: response.totals.effectiveTaxRate || null,
+        taxIncludesAll: response.totals.taxIncludesAll || false
       }
     });
 

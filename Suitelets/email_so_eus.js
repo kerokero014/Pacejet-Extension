@@ -30,6 +30,8 @@ define([
 
   // Optional: restrict only to your web source text
   var WEB_SOURCE_TEXT = "Web (Curecrete Distribution, Inc.)";
+  var COMPANY_LOGO_URL =
+    "https://curecrete.com/wp-content/uploads/cropped-CurecreteLogoWebRetina-1.png";
 
   function asNumber(value, fallback) {
     var n = Number(value);
@@ -352,6 +354,9 @@ define([
       // HEADER
       "<tr>" +
       "<td style='padding:32px 24px 10px 24px;'>" +
+      "<img src='" +
+      COMPANY_LOGO_URL +
+      "' width='110' alt='Curecrete Distribution, Inc.' style='display:block;width:110px;max-width:100%;height:auto;margin:0 0 24px 0;border:0;outline:none;text-decoration:none;'>" +
       "<h1 style='margin:0;font-size:28px;line-height:1.2;color:#111827;font-weight:700;'>" +
       "Order Received" +
       "</h1>" +
